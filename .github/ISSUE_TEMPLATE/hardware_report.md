@@ -19,4 +19,4 @@ labels: hardware-report
 
 **Companion app it pairs with:** (ThinkerRide / GreenTrip / KOVE / other)
 
-**Anything else** (telemetry seen, projection behavior, surprises):
+**Anything else** (BLE traffic observed, projection behavior, surprises):

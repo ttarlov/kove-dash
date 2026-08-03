@@ -4,7 +4,6 @@ Planned work and open questions. For anything sizable, open an issue first so ef
 
 ## Good first issues (no hardware needed)
 
-- Show inbound telemetry in the Telemetry tab. The dash emits `msg_id=10 item=1/2/3` frames (speed `current/max/average`, odometer `total/subtotal`, and `tire_pressure`/`remaining_oil`/`endurance`). The wire format is documented in `proto-poc/PROTOCOL.md`; a decoder for these frames needs to be written (`proto/` is the natural home) and the values surfaced as live rows in `TelemetryPanel.kt`.
 - Camera bounds fit on route set. When a destination is picked, fit the route bounds briefly before resuming GPS follow. Today the polyline runs off-screen until the rider recenters manually. (`NavMap.kt`, `Navigator.kt`)
 - Hide or label the handshake progress pill. The header shows an unlabeled `00/06`; either hide it until it means something or label it.
 
@@ -27,9 +26,10 @@ Planned work and open questions. For anything sizable, open an issue first so ef
 
 These are investigated dead ends, not open bugs:
 
-- The Elevation widget can't be driven from the phone on `SV=3.0.4`. The dash broadcasts a constant sentinel (`altitude=17`) and no phone-pushed value renders in the Elevation menu. See `docs/re/altitude_investigation.md`. Newer firmware may behave differently.
-- The 12h/24h clock format is firmware-locked. Time sync itself works (the dash clock follows the phone), but the display format isn't toggleable over the wire on this firmware.
+- Live vehicle telemetry from the dash (speed, odometer, fuel, range) is not available to the phone on `SV=3.0.4`. The dash's outbound BLE traffic on this firmware is its own housekeeping chatter — a hardcoded `altitude=17` sentinel and packet-resend solicits — not a readable telemetry stream. Nothing here decodes or displays dash telemetry, and there's no evidence the values are exposed to pull.
+- Tire pressure (TPMS) is gated behind a per-VIN cloud capability flag (`is_tire_pressure`) that the OEM app fetches over HTTP. Until the dash believes it's TPMS-capable, it stays completely silent to `func:"TIRE"` pushes — never renders, never polls. The push protocol is fully reverse-engineered and a POC exists (`feature/tpms-poc` in the project's history), so this becomes a pure sensor-decode task *if* the flag can be flipped — via a dash settings toggle, if one exists, or by intercepting the cloud response. It is a capability gate, not a wire bug.
+- The 12h/24h clock format is firmware-locked. Time sync itself works (the dash clock follows the phone during the handshake), but the display format isn't toggleable over the wire on this firmware.
 
 ## Needs field verification
 
-The current nav stack is bench-validated; the on-bike pass is still outstanding: projection surviving screen-off, the maneuver banner advancing through real turns, off-route detection firing within a few seconds of a missed turn, and POI search returning sensible destinations. Reports from real rides on any Kove dash are welcome.
+Video projection has been validated on a real ride (it survives screen-off via a keep-display-awake trick, confirmed over 20k+ continuous frames). Still outstanding on the road: the maneuver banner advancing through real turns, off-route detection firing within a few seconds of a missed turn, GPX course-follow while actually moving, and confirming the pushed distance/ETA/progress fields render in imperial. One caveat found: on battery with the screen fully off, Doze can suspend projection after ~10–30 s — a battery-optimization exemption is the fix. Reports from real rides on any Kove dash are welcome.

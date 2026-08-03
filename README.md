@@ -1,28 +1,44 @@
 # KoveDash
 
-Android app that streams live navigation to the stock TFT dash on a Kove 450 Rally, using the dash's own Wi-Fi and BLE link. No OEM app, no cloud account, no activation server. The repository also contains full documentation of the reverse-engineered wire protocol, which is probably the most useful part if you don't own this exact bike.
+Android app that pushes navigation and ambient data to the stock TFT dash on a Kove 450 Rally, using the dash's own BLE and Wi-Fi links. No OEM app, no cloud account, no activation server.
 
-Status: experimental. Developed and tested against a single 2022 dash running firmware `SV=3.0.4`. It works on my bike. Yours may differ — see [Compatibility](#compatibility).
+There are two ways it drives the dash:
+
+- **Native data over BLE (default, low power).** The app sends small JSON frames and the dash renders them itself — a turn-by-turn arrow, weather, elevation, and clock sync — with no video pipeline running. This is the primary mode and it's cheap on battery.
+- **Full-map video over Wi-Fi (optional, higher power).** On demand, the app renders a Mapbox map to a virtual display, encodes it to H.264, and streams it to the dash as a full-screen picture.
+
+The repository also contains a full write-up of the reverse-engineered wire protocol, which is probably the most useful part if you don't own this exact bike.
+
+**Status: experimental, single-bike project.** Developed and tested against one 2022 dash running firmware `SV=3.0.4`. It works on my bike. Yours may differ — see [Compatibility](#compatibility). Some paths (turn-advance at highway speed, GPX follow while moving) are validated on the bench or stationary but not yet on a full moving ride; those are called out below and in the [roadmap](docs/ROADMAP.md).
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 ## What it does
 
-- One-tap connect: joins the dash's Wi-Fi AP, runs the OEM BLE handshake, starts the TCP listeners the dash expects. Survives a key-off/key-on cycle without intervention.
-- Live navigation on the dash: phone GPS → Mapbox route → rendered to a secondary `Presentation` display → H.264 → streamed over TCP. Maneuver banner, off-route detection, automatic rerouting.
-- Destination search with autocomplete (Mapbox SearchBox).
-- Sets the dash clock from the phone.
+**Native, over BLE (no video, low power):**
+- **Turn-by-turn on the dash's own nav page.** You navigate in Google Maps as usual; the app reads Maps' ongoing navigation notification and relays each maneuver to the dash over BLE, which draws the arrow, road name, and distance natively. (Gadgetbridge-style relay — Maps does the routing; the app is a thin bridge. Requires granting Notification access.)
+- **Weather** near the dash clock (from the phone's location).
+- **Elevation** in the trip field.
+- **Clock sync** during the connection handshake.
 
-The dash also broadcasts telemetry (speed, odometer, tire pressure, fuel level, range) over BLE. The frames are documented in the protocol notes; decoding and displaying them in the app is on the [roadmap](docs/ROADMAP.md).
+**Optional, over Wi-Fi (video projection):**
+- **Full Mapbox map** rendered on the phone and streamed to the dash as H.264. Includes destination search with autocomplete and Mapbox routing. Turn-advance / off-route / reroute logic is implemented and bench-validated; on-road behavior at speed is still being confirmed.
+- **GPX course loading and following** — load a `.gpx` track, see it drawn on the map, and follow it with distance-remaining / off-course readouts. Validated stationary; the moving "progress ticking down" path is not yet road-tested.
+
+**Connection model:**
+- Connect brings Wi-Fi up once to activate the dash's native rendering (a control channel that must come up once per power-cycle), then **parks Wi-Fi and runs BLE-only** for the low-power steady state. A single **Project** toggle brings Wi-Fi back up and starts video on demand, and drops it again when you turn projection off.
+- Auto-reconnects after a key-off/key-on cycle. (Reconnect after a BLE drop can currently take a couple of minutes — tightening that is on the roadmap.)
 
 A Python proof of concept in `proto-poc/` predates the app. It remains the reference implementation for the wire protocol and is handy for bench testing.
+
+**Not supported / known non-features** (documented so you don't chase them): live vehicle telemetry from the dash (speed, odometer, fuel, range) is **not** read or displayed — the dash doesn't expose usable telemetry to the phone on this firmware. Tire-pressure (TPMS) display is gated behind a per-VIN cloud capability flag and does not work without it, even though the push protocol is understood (see [roadmap](docs/ROADMAP.md)). Music and call/notification mirroring get no response from this dash.
 
 ## Compatibility
 
 There are two incompatible protocol families in the Kove dash ecosystem:
 
-- SiQi/ThinkerRide — older dashes, including the 2022 `SV=3.0.4` unit this was built against. This is what the app speaks.
-- Eryanet — newer dashes. Different envelope, different BLE UUIDs, reversed TCP roles. Not supported yet, though the wire format is partially documented in [`proto-poc/PROTOCOL.md`](proto-poc/PROTOCOL.md).
+- **SiQi/ThinkerRide** — older dashes, including the 2022 `SV=3.0.4` unit this was built against. This is what the app speaks.
+- **Eryanet** — newer dashes. Different envelope, different BLE UUIDs, reversed TCP roles. Not supported yet, though the wire format is partially documented in [`proto-poc/PROTOCOL.md`](proto-poc/PROTOCOL.md).
 
 If you don't have the older-family hardware, the app won't talk to your dash end-to-end. Porting to Eryanet is the biggest open piece of work.
 
@@ -31,19 +47,23 @@ If you have any Kove dash, a hardware report helps regardless of firmware: the f
 ## How it works
 
 ```
-  Phone (this app)                                  Kove dash (Wi-Fi AP @ 192.168.10.1)
-  ┌───────────────────────────┐                    ┌──────────────────────────────┐
-  │ Mapbox nav Composable     │                    │                              │
-  │   → Presentation display  │                    │                              │
-  │   → VirtualDisplay        │                    │   H.264 decoder → TFT panel  │
-  │   → MediaCodec (H.264)    │ ── TCP 15456 ────► │                              │
-  │                           │ ── TCP 15457 ◄───► │   heartbeat                  │
-  │ TCP servers (phone=server)│ ◄── 17818 ───────  │   device control / telemetry │
-  │ BLE client (ffe1/ffe2)    │ ◄── BLE ─────────► │   telemetry + time sync      │
-  └───────────────────────────┘                    └──────────────────────────────┘
+  Phone (this app)                              Kove dash (Wi-Fi AP @ 192.168.10.1)
+  ┌────────────────────────────┐               ┌───────────────────────────────────┐
+  │ BLE client (ffe1/ffe2)     │ ◄── BLE ────► │ native widgets: turn arrow,        │
+  │                            │               │ weather, elevation, clock sync     │
+  │                            │ ── TCP 17818 ─►│ control channel (activates native  │
+  │ TCP servers (phone=server) │               │ rendering once per power-cycle)    │
+  │                            │               │                                   │
+  │ optional video path:       │               │                                   │
+  │  Mapbox map → Presentation │               │                                   │
+  │   → VirtualDisplay         │ ── TCP 15456 ─►│ H.264 decoder → full-screen map    │
+  │   → MediaCodec (H.264)     │ ◄─ TCP 15457 ─►│ heartbeat                          │
+  └────────────────────────────┘               └───────────────────────────────────┘
 ```
 
-The phone is the TCP server; the dash dials in as a client. The one step that isn't obvious from the protocol: the rider has to long-press UP on the dash itself to put it into projection mode, which is what makes it connect to the phone's video socket. That's in the Kove owner's manual but not in any of the companion apps. Details in [`proto-poc/PROTOCOL.md`](proto-poc/PROTOCOL.md).
+The default steady state uses **only the BLE link** — the dash renders the widgets itself. The Wi-Fi/TCP path is brought up only for video projection. The phone is the TCP server; the dash dials in as a client.
+
+One step isn't obvious from the protocol: to start video projection, the rider long-presses **UP** on the dash to put it into projection mode, which is what makes it connect to the phone's video socket. That's in the Kove owner's manual but not in any of the companion apps. Details in [`proto-poc/PROTOCOL.md`](proto-poc/PROTOCOL.md).
 
 ## Building
 
@@ -87,7 +107,7 @@ I have not damaged a dash doing any of this, but sending unexpected input to emb
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and the [roadmap](docs/ROADMAP.md). The most useful things right now are Eryanet protocol support, hardware reports from other firmware revisions, and a handful of bench-doable issues (telemetry UI, camera bounds fit, voice prompts).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and the [roadmap](docs/ROADMAP.md). The most useful things right now are Eryanet protocol support, hardware reports from other firmware revisions, faster BLE reconnect, and confirming the on-road nav paths (turn-advance at speed, GPX follow while moving).
 
 ## License
 

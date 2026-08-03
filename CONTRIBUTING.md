@@ -8,7 +8,7 @@ The app was reverse-engineered against one dash (Kove 450 Rally, firmware `SV=3.
 |---|---|
 | Final projection round-trip | UI / Compose work |
 | Live BLE handshake timing | Mapbox geocoding and routing |
-| Telemetry capture | Protocol encode/decode (unit-tested) |
+| Native widget rendering checks | Protocol encode/decode (unit-tested) |
 | Eryanet wire validation | Encoder pipeline (emulator) |
 | Field nav testing | Docs, protocol analysis |
 

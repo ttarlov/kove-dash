@@ -4,14 +4,14 @@ How the app is put together. For the wire protocol itself (bytes on the link), s
 
 ## Overview
 
-The dash is a Wi-Fi access point, but the phone is the TCP server: the dash dials in as a client. The phone also holds the BLE client connection for control and telemetry. Everything is coordinated by a single foreground service so the link survives screen-off and app-backgrounding.
+The dash is a Wi-Fi access point, but the phone is the TCP server: the dash dials in as a client. The phone also holds the BLE client connection, which carries control and the native data push (turn-by-turn, weather, elevation, clock sync). Everything is coordinated by a single foreground service so the link survives screen-off and app-backgrounding.
 
 ```
                        ┌──────────────────── DashService (foreground) ────────────────────┐
                        │                                                                   │
    UI (Compose)        │   DashWifi ── auto-join dash AP (WifiNetworkSpecifier)            │
    ConnectScreen  ◄────┤   DashBleClient ── GATT: ffe1 write / ffe2 notify / ffe3          │
-   MapTab / Telemetry  │   DashTcpServer ── listens 17818 / 15457 / 18888 / 19000          │
+   MapTab / Diagnostics│   DashTcpServer ── listens 17818 / 15457 / 18888 / 19000          │
         ▲              │   ProjectionSession / LiveProjectionSession ── 15456 video        │
         │              │   Link supervisor ── watches BLE + Wi-Fi, exponential reconnect   │
    AppHost (state) ◄───┤                                                                   │
@@ -50,7 +50,7 @@ All under `app/app/src/main/java/com/kovedash/app/`.
 | File | Role |
 |---|---|
 | `DashMessages.kt` | Builders for the dash message catalog (msg_id 11 time, 25 altitude/weather, 27 queries, …) |
-| `TelemetryProbe.kt` | Parses inbound dash telemetry (`msg_id=10 item=1/2/3`: speed, odometer, car-info) |
+| `TelemetryProbe.kt` | Debug diagnostics probe: pokes the dash and records what comes back (mostly "no response" on this firmware) for the connection panel. Not a live vehicle-telemetry feed — the dash doesn't expose one to the phone here. |
 
 ### Projection (`project/`)
 The rendering approach mirrors both OEM apps: the dash UI is rendered into a secondary `Presentation` display backed by a `VirtualDisplay`, which feeds a `MediaCodec` H.264 encoder through an input `Surface`; the Annex-B output goes down the 15456 socket. No bitmap copies, GPU end-to-end.
