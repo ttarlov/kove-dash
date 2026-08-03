@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KoveDash V1 — Paris-Dakar Arcade Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Bungee+Inline&family=Bowlby+One:ital@0;1&family=Press+Start+2P&family=VT323&family=Barlow+Condensed:wght@400;500;700;800;900&family=Saira+Stencil+One&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --void: #0a0a14;
+  --void-2: #14142a;
+  --purple: #4d3690;
+  --purple-dim: #2e1f5a;
+  --purple-deep: #1a0f3c;
+  --mint: #02d49e;
+  --mint-bright: #3df0b8;
+  --sky: #95dbff;
+  --sky-deep: #2e8eda;
+  --magenta: #dc1283;
+  --magenta-hot: #ff2da8;
+  --yellow: #f8ee6a;
+  --yellow-hot: #fff48b;
+  --paper: #f5efe0;
+  --hot-white: #ffffff;
+  --ink: #000000;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: "Barlow Condensed", system-ui, sans-serif;
+  background:
+    radial-gradient(at 30% 10%, rgba(77, 54, 144, 0.4) 0%, transparent 50%),
+    radial-gradient(at 80% 90%, rgba(220, 18, 131, 0.18) 0%, transparent 55%),
+    var(--void);
+  color: var(--paper);
+  min-height: 100vh;
+}
+
+.gallery-shell {
+  max-width: 1880px;
+  margin: 0 auto;
+  padding: 56px 40px 80px;
+}
+
+.gallery-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 28px;
+  padding-bottom: 28px;
+  border-bottom: 2px solid var(--purple);
+  margin-bottom: 48px;
+  align-items: end;
+}
+.gallery-head .title-block {
+  position: relative;
+}
+.gallery-head h1 {
+  margin: 0;
+  font-family: "Bungee Inline", system-ui;
+  font-size: 76px;
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+  color: var(--yellow);
+  text-shadow: 5px 5px 0 var(--magenta);
+}
+.gallery-head h2 {
+  margin: 14px 0 0 0;
+  font-family: "Bowlby One", sans-serif;
+  font-style: italic;
+  font-size: 24px;
+  letter-spacing: 0.04em;
+  color: var(--mint);
+  text-shadow: 3px 3px 0 var(--ink);
+  transform: skewX(-8deg);
+  display: inline-block;
+}
+.gallery-head .lead {
+  font-family: "VT323", monospace;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--sky);
+}
+.gallery-head .meta {
+  font-family: "Press Start 2P", monospace;
+  font-size: 9px;
+  line-height: 2.2;
+  color: var(--paper);
+  text-align: right;
+}
+.gallery-head .meta span {
+  color: var(--yellow);
+}
+
+/* Sponsor band — the Camel/Rothmans tell */
+.sponsor-band {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 1fr 1.4fr;
+  height: 14px;
+  margin-bottom: 36px;
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 0 var(--ink);
+}
+.sponsor-band > div:nth-child(1) { background: var(--magenta); }
+.sponsor-band > div:nth-child(2) { background: var(--yellow); }
+.sponsor-band > div:nth-child(3) { background: var(--ink); }
+.sponsor-band > div:nth-child(4) { background: var(--sky); }
+.sponsor-band > div:nth-child(5) { background: var(--mint); }
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+}
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.frame-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.frame-label .name {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  color: var(--paper);
+  text-transform: uppercase;
+}
+.frame-label .step {
+  font-family: "Bungee", system-ui;
+  font-size: 18px;
+  color: var(--magenta);
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Phone frame ---------- */
+
+.phone {
+  width: 100%;
+  aspect-ratio: 9 / 19.5;
+  border-radius: 44px;
+  padding: 6px;
+  background: linear-gradient(180deg, #000 0%, #1a1714 60%, #000 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 30px 60px -20px rgba(0, 0, 0, 0.7),
+    0 6px 20px -8px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+.screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 38px;
+  overflow: hidden;
+  color: var(--paper);
+  font-family: "Barlow Condensed", sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Notch */
+.screen .notch {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100px;
+  height: 28px;
+  background: #000;
+  border-radius: 16px;
+  z-index: 15;
+}
+
+/* Scanlines overlay */
+.screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgba(0, 0, 0, 0.22) 2px,
+    rgba(0, 0, 0, 0.22) 3px
+  );
+  z-index: 11;
+}
+
+/* Status bar */
+.statusbar {
+  position: relative;
+  z-index: 5;
+  padding: 16px 24px 0;
+  display: flex;
+  justify-content: space-between;
+  font-family: "Press Start 2P", monospace;
+  font-size: 8px;
+  color: var(--paper);
+}
+.statusbar .right { display: flex; gap: 6px; }
+
+/* App content */
+.app {
+  position: relative;
+  z-index: 4;
+  flex: 1;
+  padding: 38px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* In-screen sponsor band */
+.app-sponsor {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 1fr 1.4fr;
+  height: 6px;
+  border: 1.5px solid var(--ink);
+  margin-bottom: 4px;
+}
+.app-sponsor > div:nth-child(1) { background: var(--magenta); }
+.app-sponsor > div:nth-child(2) { background: var(--yellow); }
+.app-sponsor > div:nth-child(3) { background: var(--ink); }
+.app-sponsor > div:nth-child(4) { background: var(--sky); }
+.app-sponsor > div:nth-child(5) { background: var(--mint); }
+
+/* Header — wordmark + dash unit pixel-icon */
+.header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 4px 4px 8px;
+  border-bottom: 2px solid var(--ink);
+  position: relative;
+}
+.wordmark {
+  font-family: "Bungee Inline", system-ui;
+  font-size: 26px;
+  letter-spacing: 0.02em;
+  color: var(--yellow);
+  text-shadow: 3px 3px 0 var(--magenta);
+  line-height: 0.95;
+}
+.subtag {
+  font-family: "Press Start 2P", monospace;
+  font-size: 7px;
+  color: var(--sky);
+  letter-spacing: 0.1em;
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.subtag .dot {
+  width: 6px; height: 6px; background: var(--mint);
+  display: inline-block;
+}
+.subtag .dot.warn { background: var(--magenta); animation: blink 0.8s steps(1) infinite; }
+.subtag .dot.idle { background: var(--paper); opacity: 0.5; }
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
+}
+
+/* dash unit pixel-icon top-right */
+.unit-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.unit-card svg { display: block; }
+.unit-id {
+  font-family: "Press Start 2P", monospace;
+  font-size: 6px;
+  letter-spacing: 0.1em;
+  color: var(--yellow);
+}
+
+/* STAGE BAR — 6 chunky beveled segments */
+.stage-wrap { padding: 4px 0 2px; }
+.stage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.stage-title {
+  font-family: "Saira Stencil One", sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--paper);
+}
+.stage-code {
+  font-family: "Bungee", system-ui;
+  font-size: 18px;
+  color: var(--magenta);
+  letter-spacing: 0.04em;
+}
+.stage-bar {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+  height: 14px;
+  border: 1.5px solid var(--ink);
+  background: var(--void);
+}
+.stage-bar > div { position: relative; }
+.stage-bar > div.on {
+  background: var(--mint);
+  box-shadow:
+    inset 1px 1px 0 var(--mint-bright),
+    inset -1px -1px 0 #017a5b;
+}
+.stage-bar > div.live {
+  background: var(--magenta);
+  box-shadow:
+    inset 1px 1px 0 var(--magenta-hot),
+    inset -1px -1px 0 #7a0a48;
+  animation: cycle-mag 0.5s steps(1) infinite;
+}
+@keyframes cycle-mag {
+  0%, 49% { background: var(--magenta); }
+  50%, 100% { background: var(--yellow); }
+}
+.stage-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: "Press Start 2P", monospace;
+  font-size: 6px;
+  color: var(--sky);
+  letter-spacing: 0.1em;
+  margin-top: 4px;
+}
+.stage-meta .now { color: var(--magenta); }
+
+/* PACENOTE PANEL — like co-driver instructions */
+.pacenote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: "VT323", monospace;
+}
+.pace-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--void-2);
+  border: 1px solid rgba(149, 219, 255, 0.2);
+  font-size: 14px;
+  line-height: 1;
+}
+.pace-row .chev {
+  font-family: "Bowlby One", sans-serif;
+  font-style: italic;
+  font-size: 16px;
+  color: var(--mint);
+  text-align: center;
+  line-height: 1;
+}
+.pace-row .chev.amber { color: var(--yellow); }
+.pace-row .chev.dim { color: rgba(245, 239, 224, 0.3); }
+.pace-row .body {
+  color: var(--paper);
+  font-size: 16px;
+}
+.pace-row .body.dim { color: rgba(149, 219, 255, 0.5); }
+.pace-row .tag {
+  font-family: "Press Start 2P", monospace;
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  color: var(--mint);
+}
+.pace-row .tag.amber { color: var(--yellow); animation: blink 0.5s steps(1) infinite; }
+.pace-row .tag.dim { color: rgba(245, 239, 224, 0.3); }
+.pace-row.live { border-color: var(--magenta); background: rgba(220, 18, 131, 0.18); }
+.pace-row.done { background: rgba(2, 212, 158, 0.08); border-color: rgba(2, 212, 158, 0.4); }
+
+/* SECTION HEADERS */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 4px;
+}
+.section-head .num {
+  font-family: "Press Start 2P", monospace;
+  font-size: 8px;
+  color: var(--yellow);
+  padding: 3px 5px;
+  background: var(--ink);
+  border: 1px solid var(--yellow);
+  letter-spacing: 0.04em;
+}
+.section-head .name {
+  font-family: "Bowlby One", sans-serif;
+  font-style: italic;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--paper);
+  text-shadow: 2px 2px 0 var(--ink);
+  transform: skewX(-8deg);
+}
+.section-head .rule {
+  flex: 1;
+  height: 4px;
+  background:
+    linear-gradient(to right, var(--magenta) 0 25%, var(--yellow) 25% 50%, var(--sky) 50% 75%, var(--mint) 75% 100%);
+  border: 1px solid var(--ink);
+}
+
+/* TELEMETRY KV */
+.kv-block { display: flex; flex-direction: column; }
+.kv-block .kv {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 5px 4px;
+  border-bottom: 1px solid rgba(149, 219, 255, 0.18);
+}
+.kv-block .kv:last-child { border-bottom: 0; }
+.kv .k {
+  font-family: "Press Start 2P", monospace;
+  font-size: 8px;
+  color: var(--sky);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.kv .v {
+  font-family: "VT323", monospace;
+  font-size: 20px;
+  color: var(--paper);
+  line-height: 1;
+}
+.kv .v.dim { color: rgba(149, 219, 255, 0.55); font-style: italic; }
+.kv .v.mint { color: var(--mint); }
+.kv .v.yellow { color: var(--yellow); }
+.kv .v.magenta { color: var(--magenta); }
+
+/* CRITICAL BANNER — "PRESS UP!" intertitle */
+.critical {
+  position: relative;
+  border: 3px solid var(--ink);
+  background: var(--void);
+  padding: 14px 14px 18px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  box-shadow: 5px 5px 0 var(--magenta);
+}
+.critical::before {
+  content: "OPERATOR ACTION";
+  position: absolute;
+  top: -10px;
+  left: 14px;
+  padding: 1px 8px;
+  font-family: "Press Start 2P", monospace;
+  font-size: 7px;
+  background: var(--magenta);
+  color: var(--paper);
+  letter-spacing: 0.1em;
+  border: 2px solid var(--ink);
+}
+.critical .big {
+  font-family: "Bungee Inline", sans-serif;
+  font-size: 28px;
+  line-height: 1.05;
+  color: var(--yellow);
+  text-shadow: 3px 3px 0 var(--magenta);
+  letter-spacing: 0.02em;
+}
+.critical .big em {
+  font-style: normal;
+  color: var(--mint-bright);
+  text-shadow: 3px 3px 0 var(--magenta);
+  animation: hot-cycle 0.5s steps(1) infinite;
+}
+@keyframes hot-cycle {
+  0%, 49% { color: var(--mint-bright); }
+  50%, 100% { color: var(--yellow-hot); }
+}
+.critical .sub {
+  font-family: "VT323", monospace;
+  font-size: 19px;
+  color: var(--sky);
+  margin-top: 10px;
+  line-height: 1.18;
+  letter-spacing: 0.01em;
+}
+.critical .sub b { color: var(--yellow); font-weight: 400; }
+.critical .icon {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* LIVE STREAM CARD — in-game HUD */
+.hud {
+  background: var(--ink);
+  border: 2px solid var(--mint);
+  padding: 10px 12px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  position: relative;
+  box-shadow:
+    inset 1px 1px 0 var(--mint-bright),
+    inset -1px -1px 0 #017a5b,
+    4px 4px 0 var(--magenta);
+}
+.hud::before {
+  content: "● LIVE";
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  padding: 2px 8px;
+  font-family: "Press Start 2P", monospace;
+  font-size: 7px;
+  background: var(--magenta);
+  color: var(--paper);
+  letter-spacing: 0.1em;
+  border: 2px solid var(--ink);
+  animation: blink 0.7s steps(1) infinite;
+}
+.hud .speed {
+  font-family: "Bungee", sans-serif;
+  font-size: 56px;
+  line-height: 0.85;
+  color: var(--paper);
+  text-shadow: 3px 3px 0 var(--magenta);
+  letter-spacing: 0.01em;
+  transform: skewX(-6deg);
+}
+.hud .speed .lead0 { color: rgba(245, 239, 224, 0.22); }
+.hud .speed .unit {
+  font-family: "Press Start 2P", monospace;
+  font-size: 10px;
+  color: var(--mint);
+  vertical-align: top;
+  margin-left: 6px;
+  text-shadow: none;
+}
+.hud .frame-pill {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 7px;
+  background: var(--magenta);
+  border: 2px solid var(--ink);
+  font-family: "Press Start 2P", monospace;
+  font-size: 7px;
+  color: var(--paper);
+  letter-spacing: 0.06em;
+}
+
+/* SPLIT TIME pills */
+.splits {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.split {
+  font-family: "VT323", monospace;
+  font-size: 14px;
+  padding: 2px 6px;
+  border: 1.5px solid var(--ink);
+  background: var(--mint);
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.split.bad { background: var(--magenta); color: var(--paper); }
+.split.info { background: var(--sky); color: var(--ink); }
+
+/* BUTTONS — beveled 3D arcade */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+.btn {
+  font-family: "Bowlby One", sans-serif;
+  font-size: 14px;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  border: 2px solid var(--ink);
+  background: var(--mint);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  transform: skewX(-6deg);
+  box-shadow:
+    inset 2px 2px 0 var(--mint-bright),
+    inset -2px -2px 0 #017a5b,
+    4px 4px 0 var(--ink);
+  transition: transform 60ms ease, box-shadow 60ms ease;
+}
+.btn > * { transform: skewX(6deg); }
+.btn:hover { filter: brightness(1.08); }
+.btn:active {
+  transform: skewX(-6deg) translate(2px, 2px);
+  box-shadow:
+    inset 2px 2px 0 #017a5b,
+    inset -2px -2px 0 var(--mint-bright),
+    2px 2px 0 var(--ink);
+}
+.btn .arrow {
+  font-family: "Faster One", system-ui;
+  font-style: normal;
+  font-size: 14px;
+  color: var(--ink);
+}
+.btn .meta {
+  font-family: "VT323", monospace;
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(0, 0, 0, 0.65);
+  font-weight: 400;
+}
+
+.btn-go { background: var(--mint); box-shadow: inset 2px 2px 0 var(--mint-bright), inset -2px -2px 0 #017a5b, 4px 4px 0 var(--ink); }
+.btn-action {
+  background: var(--yellow);
+  box-shadow: inset 2px 2px 0 var(--yellow-hot), inset -2px -2px 0 #8e8420, 4px 4px 0 var(--ink);
+}
+.btn-action .meta { color: rgba(0, 0, 0, 0.7); }
+.btn-info {
+  background: var(--sky);
+  box-shadow: inset 2px 2px 0 #c5edff, inset -2px -2px 0 var(--sky-deep), 4px 4px 0 var(--ink);
+}
+.btn-stop {
+  background: var(--magenta);
+  color: var(--paper);
+  box-shadow: inset 2px 2px 0 var(--magenta-hot), inset -2px -2px 0 #7a0a48, 4px 4px 0 var(--ink);
+}
+.btn-stop .arrow { color: var(--paper); }
+.btn-stop .meta { color: rgba(245, 239, 224, 0.7); }
+.btn-disabled {
+  background: var(--purple-dim);
+  color: rgba(245, 239, 224, 0.4);
+  box-shadow: inset 2px 2px 0 var(--purple), inset -2px -2px 0 var(--ink), 4px 4px 0 var(--ink);
+  cursor: not-allowed;
+}
+.btn-disabled .arrow { color: rgba(245, 239, 224, 0.3); }
+.btn-disabled .meta { color: rgba(245, 239, 224, 0.3); }
+
+/* COMPASS / MAP */
+.compass {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+.compass-svg { width: 130px; height: 130px; image-rendering: pixelated; }
+
+/* ROUTE MINIMAP */
+.minimap {
+  background: var(--void);
+  border: 2px solid var(--ink);
+  height: 88px;
+  padding: 8px;
+  position: relative;
+  box-shadow: 3px 3px 0 var(--sky);
+}
+.minimap::before {
+  content: "ROUTE PREVIEW";
+  position: absolute;
+  top: -8px; left: 8px;
+  background: var(--sky);
+  color: var(--ink);
+  font-family: "Press Start 2P", monospace;
+  font-size: 6px;
+  letter-spacing: 0.1em;
+  padding: 1px 4px;
+  border: 1.5px solid var(--ink);
+}
+.minimap svg { width: 100%; height: 100%; display: block; }
+
+/* PRESS START */
+.press-start {
+  text-align: center;
+  font-family: "Press Start 2P", monospace;
+  font-size: 10px;
+  color: var(--yellow);
+  letter-spacing: 0.15em;
+  padding: 6px 0;
+  animation: blink 0.8s steps(1) infinite;
+}
+
+/* Position pill */
+.pos-pill {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 5px 10px 6px;
+  background: var(--magenta);
+  border: 2px solid var(--ink);
+  font-family: "Bungee", sans-serif;
+  color: var(--paper);
+  font-size: 18px;
+  line-height: 1;
+  box-shadow: 2px 2px 0 var(--ink);
+  letter-spacing: 0.04em;
+}
+.pos-pill .denom {
+  font-family: "Press Start 2P", monospace;
+  font-size: 8px;
+  margin-left: 4px;
+  opacity: 0.85;
+}
+
+/* Bottom mini-band (in-app sponsor strip footer) */
+.app-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 0;
+  height: 5px;
+  border: 1.5px solid var(--ink);
+  margin-top: auto;
+}
+.app-footer > div:nth-child(1) { background: var(--mint); }
+.app-footer > div:nth-child(2) { background: var(--yellow); }
+.app-footer > div:nth-child(3) { background: var(--magenta); }
+.app-footer > div:nth-child(4) { background: var(--sky); }
+</style>
+</head>
+<body>
+<div class="gallery-shell">
+  <div class="gallery-head">
+    <div class="title-block">
+      <h1>KoveDash<br/>V1.</h1>
+      <h2>Paris-Dakar Arcade Console</h2>
+    </div>
+    <p class="lead">
+      Sega Rally Championship 1995 meets Camel Trophy 1989. Late-90s
+      arcade UI vocabulary applied to a Kove 450 controller. Sponsor-strip
+      headers, beveled buttons, italic skewed speed displays, pacenote
+      panels, CRT scanlines, color-cycling on active state.
+    </p>
+    <div class="meta">
+      <span>§01</span> idle<br/>
+      <span>§02</span> handshake<br/>
+      <span>§03</span> awaiting up<br/>
+      <span>§04</span> stream live
+    </div>
+  </div>
+  <div class="sponsor-band"><div></div><div></div><div></div><div></div><div></div></div>
+
+  <div class="row">
+
+    <!-- ================== FRAME 01 :: IDLE / TITLE SCREEN ================== -->
+    <div class="frame">
+      <div class="frame-label"><span class="name">Idle · standby</span><span class="step">§01</span></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span class="right">▰▰▰▰▰▱ 84%</span></div>
+          <div class="app">
+            <div class="app-sponsor"><div></div><div></div><div></div><div></div><div></div></div>
+
+            <div class="header">
+              <div>
+                <div class="wordmark">KoveDash</div>
+                <div class="subtag">
+                  <span class="dot idle"></span>
+                  <span>K450 RALLY · SV 3.0.4</span>
+                </div>
+              </div>
+              <div class="unit-card">
+                <svg viewBox="0 0 80 50" width="76" height="48" shape-rendering="crispEdges">
+                  <rect x="2" y="6" width="76" height="38" fill="var(--purple-deep)" stroke="#000" stroke-width="2"/>
+                  <rect x="6" y="10" width="68" height="30" fill="var(--void)" stroke="#000" stroke-width="1"/>
+                  <rect x="10" y="14" width="60" height="3" fill="#dc1283"/>
+                  <rect x="10" y="20" width="42" height="3" fill="#02d49e"/>
+                  <rect x="10" y="26" width="50" height="3" fill="#95dbff"/>
+                  <rect x="10" y="32" width="34" height="3" fill="#f8ee6a"/>
+                  <rect x="18" y="2" width="3" height="4" fill="#000"/>
+                  <rect x="59" y="2" width="3" height="4" fill="#000"/>
+                </svg>
+                <span class="unit-id">UNIT XXXXXXXXX</span>
+              </div>
+            </div>
+
+            <div class="compass">
+              <svg class="compass-svg" viewBox="0 0 130 130" shape-rendering="crispEdges">
+                <!-- chunky outer ring -->
+                <rect x="6" y="6" width="118" height="118" fill="none" stroke="#000" stroke-width="3"/>
+                <rect x="10" y="10" width="110" height="110" fill="var(--purple-deep)" stroke="#dc1283" stroke-width="2"/>
+                <!-- inner dial -->
+                <circle cx="65" cy="65" r="48" fill="none" stroke="#95dbff" stroke-width="2"/>
+                <circle cx="65" cy="65" r="38" fill="none" stroke="#95dbff" stroke-width="1" stroke-dasharray="2 2"/>
+                <!-- ticks -->
+                <g stroke="#f8ee6a" stroke-width="2">
+                  <line x1="65" y1="14" x2="65" y2="22"/>
+                  <line x1="65" y1="108" x2="65" y2="116"/>
+                  <line x1="14" y1="65" x2="22" y2="65"/>
+                  <line x1="108" y1="65" x2="116" y2="65"/>
+                </g>
+                <!-- N pointer (chunky pixel diamond) -->
+                <polygon points="65,18 56,40 65,34 74,40" fill="#dc1283" stroke="#000" stroke-width="1.5"/>
+                <polygon points="65,112 56,90 65,96 74,90" fill="#02d49e" stroke="#000" stroke-width="1.5"/>
+                <!-- labels -->
+                <text x="65" y="12" text-anchor="middle" font-family="Bowlby One" font-style="italic" font-size="9" fill="#f8ee6a" stroke="#000" stroke-width="0.5">N</text>
+                <text x="65" y="125" text-anchor="middle" font-family="Bowlby One" font-style="italic" font-size="9" fill="#02d49e" stroke="#000" stroke-width="0.5">S</text>
+                <text x="9" y="68" text-anchor="middle" font-family="Bowlby One" font-style="italic" font-size="9" fill="#95dbff" stroke="#000" stroke-width="0.5">W</text>
+                <text x="121" y="68" text-anchor="middle" font-family="Bowlby One" font-style="italic" font-size="9" fill="#dc1283" stroke="#000" stroke-width="0.5">E</text>
+                <!-- center dot -->
+                <rect x="62" y="62" width="6" height="6" fill="#f8ee6a" stroke="#000" stroke-width="1"/>
+              </svg>
+            </div>
+
+            <div class="section-head">
+              <span class="num">§01</span>
+              <span class="name">Standby</span>
+              <span class="rule"></span>
+            </div>
+
+            <div class="kv-block">
+              <div class="kv"><span class="k">Link</span><span class="v dim">OFFLINE</span></div>
+              <div class="kv"><span class="k">Sector</span><span class="v yellow">00 / 06</span></div>
+              <div class="kv"><span class="k">Last seen</span><span class="v">04H 12M AGO</span></div>
+            </div>
+
+            <div class="press-start">PRESS ENGAGE TO START</div>
+
+            <div class="actions">
+              <button class="btn btn-action">
+                <span class="arrow">►</span>
+                <span>Engage Link
+                  <div class="meta">join · ble · handshake</div>
+                </span>
+                <span class="arrow">»</span>
+              </button>
+              <button class="btn btn-disabled">
+                <span class="arrow">·</span>
+                <span>Project
+                  <div class="meta">requires link</div>
+                </span>
+                <span></span>
+              </button>
+            </div>
+
+            <div class="app-footer"><div></div><div></div><div></div><div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================== FRAME 02 :: HANDSHAKE / STAGE LOADING ================== -->
+    <div class="frame">
+      <div class="frame-label"><span class="name">Handshake · 4/6</span><span class="step">§02</span></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="statusbar"><span>9:42</span><span class="right">▰▰▰▰▰▱ 83%</span></div>
+          <div class="app">
+            <div class="app-sponsor"><div></div><div></div><div></div><div></div><div></div></div>
+
+            <div class="header">
+              <div>
+                <div class="wordmark">KoveDash</div>
+                <div class="subtag">
+                  <span class="dot warn"></span>
+                  <span>HANDSHAKE IN PROGRESS</span>
+                </div>
+              </div>
+              <div class="pos-pill">04<span class="denom">/06</span></div>
+            </div>
+
+            <div class="stage-wrap">
+              <div class="stage-head">
+                <span class="stage-title">BLE HANDSHAKE</span>
+                <span class="stage-code">04 / 06</span>
+              </div>
+              <div class="stage-bar">
+                <div class="on"></div>
+                <div class="on"></div>
+                <div class="on"></div>
+                <div class="live"></div>
+                <div></div>
+                <div></div>
+              </div>
+              <div class="stage-meta">
+                <span>WIFI</span><span>BLE</span><span>FW</span><span class="now">CHK</span><span>NAV</span><span>RDY</span>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <span class="num">§02</span>
+              <span class="name">Pacenotes</span>
+              <span class="rule"></span>
+            </div>
+
+            <div class="pacenote-list">
+              <div class="pace-row done">
+                <span class="chev">▸</span>
+                <span class="body">msg 13 · requestVersionCode</span>
+                <span class="tag">ACK</span>
+              </div>
+              <div class="pace-row done">
+                <span class="chev">▸</span>
+                <span class="body">msg 24 · sendLinkInfo</span>
+                <span class="tag">ACK</span>
+              </div>
+              <div class="pace-row done">
+                <span class="chev">▸</span>
+                <span class="body">msg 26 · requestProductType</span>
+                <span class="tag">ACK</span>
+              </div>
+              <div class="pace-row live">
+                <span class="chev amber">▸</span>
+                <span class="body">msg 54 · checkVehicleCurStatus</span>
+                <span class="tag amber">SEND</span>
+              </div>
+              <div class="pace-row">
+                <span class="chev dim">▸</span>
+                <span class="body dim">msg 27 · INSIDENAVI q=2</span>
+                <span class="tag dim">···</span>
+              </div>
+              <div class="pace-row">
+                <span class="chev dim">▸</span>
+                <span class="body dim">msg 27 · INSIDENAVI q=1</span>
+                <span class="tag dim">···</span>
+              </div>
+            </div>
+
+            <div class="splits">
+              <span class="split info">BLE +00:01.2</span>
+              <span class="split">FW +00:00.6</span>
+              <span class="split bad">CHK …</span>
+            </div>
+
+            <div class="actions">
+              <button class="btn btn-disabled">
+                <span class="arrow">·</span>
+                <span>Engage Link
+                  <div class="meta">in flight…</div>
+                </span>
+                <span></span>
+              </button>
+              <button class="btn btn-stop">
+                <span class="arrow">×</span>
+                <span>Abort
+                  <div class="meta">cancel stage</div>
+                </span>
+                <span></span>
+              </button>
+            </div>
+
+            <div class="app-footer"><div></div><div></div><div></div><div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================== FRAME 03 :: READY / PRESS UP ================== -->
+    <div class="frame">
+      <div class="frame-label"><span class="name">Ready · press UP</span><span class="step">§03</span></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="statusbar"><span>9:44</span><span class="right">▰▰▰▰▰▱ 82%</span></div>
+          <div class="app">
+            <div class="app-sponsor"><div></div><div></div><div></div><div></div><div></div></div>
+
+            <div class="header">
+              <div>
+                <div class="wordmark">KoveDash</div>
+                <div class="subtag">
+                  <span class="dot"></span>
+                  <span style="color: var(--mint);">LINK ESTABLISHED</span>
+                </div>
+              </div>
+              <div class="pos-pill" style="background: var(--mint); color: var(--ink);">RDY<span class="denom">/06</span></div>
+            </div>
+
+            <div class="critical">
+              <div>
+                <div class="big">PRESS <em>UP!</em></div>
+                <div class="sub">
+                  Hold <b>UP</b> button on dash<br/>
+                  for ~2 seconds. Firmware<br/>
+                  unlocks projection mode.
+                </div>
+              </div>
+              <div class="icon">
+                <svg viewBox="0 0 80 90" width="74" height="84" shape-rendering="crispEdges">
+                  <!-- dash unit -->
+                  <rect x="6" y="36" width="68" height="44" fill="var(--void-2)" stroke="#f5efe0" stroke-width="2"/>
+                  <rect x="12" y="42" width="56" height="32" fill="#000" stroke="#f5efe0" stroke-width="1"/>
+                  <rect x="16" y="46" width="48" height="3" fill="#02d49e"/>
+                  <rect x="16" y="52" width="34" height="3" fill="#95dbff"/>
+                  <rect x="16" y="58" width="42" height="3" fill="#f8ee6a"/>
+                  <rect x="16" y="64" width="26" height="3" fill="#dc1283"/>
+                  <!-- UP button on top -->
+                  <rect x="58" y="28" width="14" height="10" fill="#f8ee6a" stroke="#000" stroke-width="2"/>
+                  <text x="65" y="36" text-anchor="middle" font-family="Press Start 2P" font-size="6" fill="#000">UP</text>
+                  <!-- big arrow pointing to button -->
+                  <polygon points="65,20 56,8 60,8 60,2 70,2 70,8 74,8" fill="#dc1283" stroke="#000" stroke-width="2">
+                    <animate attributeName="fill" values="#dc1283;#f8ee6a;#dc1283" dur="0.6s" repeatCount="indefinite"/>
+                  </polygon>
+                  <!-- press-trail dots -->
+                  <rect x="65" y="22" width="2" height="2" fill="#f8ee6a"/>
+                  <rect x="64" y="26" width="2" height="2" fill="#f8ee6a" opacity="0.6"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <span class="num">§03</span>
+              <span class="name">Telemetry</span>
+              <span class="rule"></span>
+            </div>
+
+            <div class="kv-block">
+              <div class="kv"><span class="k">Gateway</span><span class="v mint">192.168.10.1</span></div>
+              <div class="kv"><span class="k">Firmware</span><span class="v">SV=3.0.4</span></div>
+              <div class="kv"><span class="k">MAC</span><span class="v">CC:CC:CC:XX:XX:XX</span></div>
+              <div class="kv"><span class="k">Device</span><span class="v yellow">K450 RALLY</span></div>
+              <div class="kv"><span class="k">Inside</span><span class="v">alt:17 src:1</span></div>
+              <div class="kv"><span class="k">Navi</span><span class="v dim">no response</span></div>
+            </div>
+
+            <div class="actions">
+              <button class="btn btn-go">
+                <span class="arrow">►</span>
+                <span>Project
+                  <div class="meta">open 15456 · stream H.264</div>
+                </span>
+                <span class="arrow">»</span>
+              </button>
+              <button class="btn btn-stop">
+                <span class="arrow">×</span>
+                <span>Disconnect
+                  <div class="meta">drop ble + tcp</div>
+                </span>
+                <span></span>
+              </button>
+            </div>
+
+            <div class="app-footer"><div></div><div></div><div></div><div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================== FRAME 04 :: STREAM LIVE / IN-GAME HUD ================== -->
+    <div class="frame">
+      <div class="frame-label"><span class="name">Stream live</span><span class="step">§04</span></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="statusbar"><span>9:46</span><span class="right">▰▰▰▰▰▱ 80%</span></div>
+          <div class="app">
+            <div class="app-sponsor"><div></div><div></div><div></div><div></div><div></div></div>
+
+            <div class="header">
+              <div>
+                <div class="wordmark">KoveDash</div>
+                <div class="subtag">
+                  <span class="dot warn"></span>
+                  <span style="color: var(--magenta);">STREAMING · 15456/TCP</span>
+                </div>
+              </div>
+              <div class="pos-pill">LIVE</div>
+            </div>
+
+            <div class="hud">
+              <div>
+                <div class="speed">
+                  <span class="lead0">00</span>30<span class="unit">FPS</span>
+                </div>
+                <div style="margin-top: 4px;">
+                  <span class="frame-pill">FRAME 02,490 · LOOP §17</span>
+                </div>
+                <div class="splits">
+                  <span class="split">+0 DROPS</span>
+                  <span class="split info">3MS RTT</span>
+                </div>
+              </div>
+              <div>
+                <svg viewBox="0 0 60 60" width="60" height="60" shape-rendering="crispEdges">
+                  <rect x="2" y="14" width="56" height="32" fill="var(--void)" stroke="#f5efe0" stroke-width="2"/>
+                  <rect x="6" y="18" width="48" height="24" fill="#02d49e"/>
+                  <rect x="10" y="22" width="40" height="3" fill="#000"/>
+                  <rect x="10" y="28" width="30" height="3" fill="#000"/>
+                  <rect x="10" y="34" width="34" height="3" fill="#000"/>
+                  <rect x="14" y="10" width="3" height="6" fill="#000"/>
+                  <rect x="44" y="10" width="3" height="6" fill="#000"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <span class="num">§04</span>
+              <span class="name">Live Stats</span>
+              <span class="rule"></span>
+            </div>
+
+            <div class="kv-block">
+              <div class="kv"><span class="k">Source</span><span class="v yellow">motion.h264</span></div>
+              <div class="kv"><span class="k">Bitrate</span><span class="v">1.3 MB/S</span></div>
+              <div class="kv"><span class="k">AU size</span><span class="v">45 092 B</span></div>
+              <div class="kv"><span class="k">Cadence</span><span class="v mint">30.00</span></div>
+              <div class="kv"><span class="k">Heartbeat</span><span class="v mint">HEALTHY · 2.0s</span></div>
+              <div class="kv"><span class="k">Up-time</span><span class="v">02:27</span></div>
+            </div>
+
+            <div class="actions">
+              <button class="btn btn-info">
+                <span class="arrow">⇄</span>
+                <span>Swap source
+                  <div class="meta">motion.h264 → …</div>
+                </span>
+                <span class="arrow">»</span>
+              </button>
+              <button class="btn btn-stop">
+                <span class="arrow">■</span>
+                <span>Stop stream
+                  <div class="meta">close 15456</div>
+                </span>
+                <span></span>
+              </button>
+            </div>
+
+            <div class="app-footer"><div></div><div></div><div></div><div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

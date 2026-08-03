@@ -1,0 +1,15 @@
+# Copy this file to `local.properties` and fill in your own values.
+# `local.properties` is gitignored — never commit real tokens.
+
+# Path to your Android SDK.
+#   macOS (Homebrew):  /opt/homebrew/share/android-commandlinetools
+#   Android Studio:    ~/Library/Android/sdk  (macOS) or ~/Android/Sdk (Linux)
+sdk.dir=/path/to/your/android-sdk
+
+# Mapbox tokens — get them free at https://account.mapbox.com/
+#   DOWNLOADS token: a SECRET token (sk.*) with the DOWNLOADS:READ scope.
+#     Used by Gradle to pull the Mapbox SDK from their Maven repo.
+#   PUBLIC token: your default public token (pk.*).
+#     Used at runtime for maps, geocoding, and directions.
+MAPBOX_DOWNLOADS_TOKEN=sk.your_secret_downloads_token_here
+MAPBOX_PUBLIC_TOKEN=pk.your_public_token_here

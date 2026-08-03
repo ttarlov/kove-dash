@@ -1,0 +1,57 @@
+# --- macOS / editors ---
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+
+# --- Python (proto-poc) ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.python-version
+
+# --- Android / Kotlin build artifacts ---
+.gradle/
+**/build/
+local.properties
+.cxx/
+captures/
+
+# --- Large / regenerable RE artifacts ---
+# APKs themselves — re-pull from device with `adb pull` or download from source
+*.apk
+*.aab
+*.xapk
+# jadx output — regenerate with `jadx -d <out_dir> <apk>`
+**/jadx_output/
+**/decompile/
+**/*_decompile/
+**/*decompile*/
+# native libs unpacked from APKs
+**/lib/arm64-v8a/
+**/lib/armeabi-v7a/
+**/lib/x86_64/
+**/lib/x86/
+# smali outputs
+**/smali/
+**/smali_*/
+# bulk phase2 APK variants we don't want in history
+phase2/apks_for_diff/
+phase2/green_trip/
+phase2/kove_app/decompile/
+# Bug reports
+bugreport-*.zip
+
+# --- Personal / runtime ---
+*.h264.tmp
+*.log
+.kotlin/
+
+# --- Private working notes (not for publication) ---
+_private/
+
+# Claude Code session dirs / agent worktrees
+.claude/
