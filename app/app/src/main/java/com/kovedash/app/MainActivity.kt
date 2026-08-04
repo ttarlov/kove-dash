@@ -104,6 +104,13 @@ class MainActivity : ComponentActivity() {
         if (allGranted) AppHost.autoConnectIfReady()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-check Notification Access — the user may have just returned from the system
+        // settings screen we deep-linked them to, so the "grant" prompt should clear.
+        AppHost.refreshNotificationAccess()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         AppHost.setProjectionConsentRequester(null)
@@ -182,6 +189,7 @@ private fun App() {
                     onOpenSettings = AppHost::openSettings,
                     onActivateSearch = { searching = true },
                     onEasterEgg = AppHost::projectEasterEgg,
+                    onGrantNotifAccess = AppHost::openNotificationAccessSettings,
                 )
             }
             if (state.needsPassword) {

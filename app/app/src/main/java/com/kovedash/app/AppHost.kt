@@ -55,6 +55,14 @@ object AppHost {
         }
         gpsSource = GpsSource(context.applicationContext)
         startGpsIfPermitted()
+        refreshNotificationAccess()
+    }
+
+    /** Re-check whether Notification Access is granted and publish it to state so the UI can
+     *  prompt for it. Call on launch and on every resume (e.g. returning from the settings
+     *  screen the user was deep-linked to). */
+    fun refreshNotificationAccess() {
+        _state.update { it.copy(notificationAccessGranted = isNotificationAccessGranted()) }
     }
 
     /**

@@ -33,6 +33,10 @@ data class DashState(
     // dash's native rendering. Widgets keep flowing over BLE; the supervisor won't fight the
     // (expected) Wi-Fi loss. Re-arm Wi-Fi via [AppHost.unparkWifi] (or projecting).
     val wifiParked: Boolean = false,
+    // Whether the app has been granted Notification Access — required for the Google Maps
+    // turn-by-turn forwarder (navshare). Default true so we don't flash the prompt before the
+    // first real check (AppHost refreshes it on attach + on each resume).
+    val notificationAccessGranted: Boolean = true,
     val errorMessage: String? = null,
     val needsPassword: Boolean = false,
     val reconnectAttempt: Int = 0,
