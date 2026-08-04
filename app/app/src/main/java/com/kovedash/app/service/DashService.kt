@@ -335,6 +335,11 @@ class DashService : Service() {
     // re-request and go straight to BLE. @Volatile — read from the supervisor coroutine.
     @Volatile private var wifiParked = false
 
+    // When the BLE link last dropped (supervisor sets it). A long outage before we re-link
+    // signals a dash power-cycle (key off→on) — the dash rebooted and lost its native-render
+    // activation, so we must re-run the Wi-Fi/17818 activation, not just re-link BLE.
+    @Volatile private var bleDropAtMs = 0L
+
     // PARTIAL_WAKE_LOCK held while projection is active. Without it, Doze suspends
     // the encoder drain coroutine and the dash decoder times out after ~1 s of no
     // NALUs. setReferenceCounted(false) so repeat acquires are a no-op rather than
@@ -414,6 +419,7 @@ class DashService : Service() {
             ble.connectionState.collect { state ->
                 if (state == DashBleClient.State.CONNECTED) sawConnected = true
                 if (sawConnected && state == DashBleClient.State.DISCONNECTED) {
+                    bleDropAtMs = System.currentTimeMillis()
                     Log.w(TAG, "BLE dropped — supervisor triggering reconnect")
                     triggerReconnect()
                     sawConnected = false
@@ -475,7 +481,10 @@ class DashService : Service() {
                 }
                 delay(backoffMs)
                 attempt++
-                backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+                // Cap tightened from 30s → 8s: reconnectAuto (autoConnect=true) does the real
+                // waiting inside each attempt, re-linking the instant the dash re-advertises, so
+                // this loop is a safety net for total failures — a long idle cap just delayed us.
+                backoffMs = (backoffMs * 2).coerceAtMost(RECONNECT_BACKOFF_CAP_MS)
             }
         }
     }
@@ -486,16 +495,35 @@ class DashService : Service() {
             return false
         }
 
-        // 1. Wi-Fi: rejoin only if Wi-Fi is actually down. Check both the live SSID
-        //    and our internal `bound` StateFlow — calling requestDashNetwork() when
-        //    the dash AP is already up risks re-popping the Android Wi-Fi consent
-        //    dialog AND wastes battery on a redundant network association.
-        // Wi-Fi PARKED (BLE-primary): skip Wi-Fi entirely — rendering was already activated this
-        // power-cycle, so a BLE-only reconnect is all we need. This is what lets a BLE drop
-        // recover without dragging Wi-Fi back up.
         if (wifiParked) {
-            Log.i(TAG, "reconnect: Wi-Fi parked (BLE-primary) — BLE-only reconnect")
+            // BLE-PRIMARY steady state. Re-link BLE FIRST — reconnectAuto (autoConnect=true) waits
+            // through a key-off→key-on, so the outage we measure once it lands tells us whether the
+            // dash merely blipped or fully rebooted.
+            if (!relinkBle()) { Log.w(TAG, "reconnect: BLE re-link failed"); return false }
+            val outageMs = if (bleDropAtMs > 0L) System.currentTimeMillis() - bleDropAtMs else 0L
+            val powerCycle = outageMs >= POWER_CYCLE_OUTAGE_MS
+            Log.i(TAG, "reconnect: BLE re-linked after ${outageMs}ms (powerCycle=$powerCycle)")
+            if (powerCycle) {
+                // The dash rebooted → it lost this power-cycle's native-render activation, and only
+                // the Wi-Fi/17818 control channel restores it. Rejoin the AP, run the handshake, give
+                // the dash a moment to re-dial 17818, then drop back to the BLE-only steady state.
+                Log.i(TAG, "reconnect: power-cycle — re-activating rendering over Wi-Fi/17818")
+                if (!unparkWifi()) {
+                    Log.w(TAG, "reconnect: re-activation Wi-Fi rejoin failed — widgets may stay dark until Wi-Fi returns")
+                }
+                runHandshake()
+                if (ble.connectionState.value == DashBleClient.State.CONNECTED) {
+                    delay(4000)      // let the dash re-dial 17818 before we release Wi-Fi
+                    parkWifi()
+                    Log.i(TAG, "reconnect: re-activation done — re-parked to BLE-only")
+                }
+            } else {
+                runHandshake()       // transient blip — BLE-only, no Wi-Fi churn
+            }
         } else {
+            // Not parked (e.g. mid-projection). Original order: rejoin Wi-Fi if actually down, then
+            // BLE. Checking both the live SSID and the `bound` StateFlow avoids a redundant
+            // requestDashNetwork() (which risks re-popping the consent dialog + wastes battery).
             val currentSsid = wifi.currentSsid()
             val onDashApBySsid = currentSsid?.startsWith(settings.dashSsidPrefix) == true
             val onDashApByBound = wifi.bound.value || wifi.isOnDashSubnet()
@@ -511,25 +539,26 @@ class DashService : Service() {
             } else {
                 Log.i(TAG, "reconnect: Wi-Fi still on dash (ssid=$currentSsid bound=$onDashApByBound), skip request")
             }
+            if (!relinkBle()) { Log.w(TAG, "reconnect: BLE re-link failed"); return false }
+            runHandshake()
         }
-
-        // 2. BLE: re-scan + reconnect if not already linked.
-        if (ble.connectionState.value != DashBleClient.State.CONNECTED) {
-            Log.i(TAG, "reconnect: scanning BLE")
-            val connected = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
-                runCatching { ble.scanAndConnect(settings.dashSsidPrefix, settings.dashMac) }.getOrDefault(false)
-            } ?: false
-            if (!connected) {
-                Log.w(TAG, "reconnect: BLE scan/connect failed")
-                return false
-            }
-        } else {
-            Log.i(TAG, "reconnect: BLE already connected, skipping scan")
-        }
-
-        // 3. Re-fire the OEM handshake so the dash re-promotes us.
-        runHandshake()
+        bleDropAtMs = 0L
         return true
+    }
+
+    /** Re-establish the BLE link: OS-driven autoConnect fast path first (instant re-link the
+     *  moment the dash re-advertises), an active scan as fallback. No-op success if already up. */
+    private suspend fun relinkBle(): Boolean {
+        if (ble.connectionState.value == DashBleClient.State.CONNECTED) {
+            Log.i(TAG, "reconnect: BLE already connected, skipping re-link")
+            return true
+        }
+        val mac = settings.dashMac
+        if (!mac.isNullOrBlank() && ble.reconnectAuto(mac, RECONNECT_AUTO_TIMEOUT_MS)) return true
+        Log.i(TAG, "reconnect: autoConnect miss — falling back to scan")
+        return kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+            runCatching { ble.scanAndConnect(settings.dashSsidPrefix, settings.dashMac) }.getOrDefault(false)
+        } ?: false
     }
 
     /**
@@ -1383,6 +1412,15 @@ class DashService : Service() {
         // reconnect, the service auto-stops to clear the foreground notification, the
         // Wi-Fi consent re-prompt loop, and the BLE scanning drain.
         const val MAX_RECONNECT_WALL_CLOCK_MS = 5L * 60L * 1000L
+
+        // Backoff cap between reconnect attempts. Small on purpose — reconnectAuto waits inside
+        // each attempt for the dash to re-advertise, so the loop is a safety net, not the timer.
+        const val RECONNECT_BACKOFF_CAP_MS = 8_000L
+        // Per-attempt window for the autoConnect fast reconnect before falling back to a scan.
+        const val RECONNECT_AUTO_TIMEOUT_MS = 45_000L
+        // A BLE outage at least this long is treated as a dash power-cycle (reboot), which needs
+        // Wi-Fi/17818 re-activation — not just a BLE re-link. Below this = a transient blip.
+        const val POWER_CYCLE_OUTAGE_MS = 5_000L
 
         // How often to re-push weather + elevation after the initial connect push. 5 min
         // keeps elevation reasonably live on a ride while weather (slow-moving) stays fresh;
