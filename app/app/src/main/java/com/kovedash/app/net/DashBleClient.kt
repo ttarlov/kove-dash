@@ -230,7 +230,13 @@ class DashBleClient(
     }
 
     @Suppress("MissingPermission")
-    private suspend fun connectTo(device: BluetoothDevice, autoConnect: Boolean = false): Boolean = suspendCancellableCoroutine { cont ->
+    private suspend fun connectTo(device: BluetoothDevice, autoConnect: Boolean = false): Boolean {
+        // The dash drops an UNBONDED LE link every ~30s (issue #5): each drop resets the GATT,
+        // the seq counter, and the handshake — wiping any native widget state, so weather /
+        // elevation / turn-by-turn never persist long enough to render. Establish the bond FIRST
+        // so the link stays up. No-op if already bonded (the normal, persistent case).
+        ensureBonded(device)
+        return suspendCancellableCoroutine { cont ->
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                 when (newState) {
@@ -314,6 +320,51 @@ class DashBleClient(
             device.connectGatt(context, autoConnect, callback, BluetoothDevice.TRANSPORT_LE)
         } else {
             device.connectGatt(context, autoConnect, callback)
+        }
+        }
+    }
+
+    /**
+     * Ensure the phone is bonded to the dash before we rely on the link (issue #5). The dash
+     * requires an encrypted/bonded LE connection and drops an unbonded one every ~30s, which
+     * churns reconnects and prevents native rendering from ever settling. If the device isn't
+     * bonded, kick off [BluetoothDevice.createBond] and wait (this triggers the one-time system
+     * pairing dialog on a first connect; the bond then persists). Best-effort: returns false on
+     * timeout/failure and lets the caller connect anyway, but proactive bonding avoids the churn.
+     */
+    @Suppress("MissingPermission")
+    private suspend fun ensureBonded(device: BluetoothDevice, timeoutMs: Long = BOND_TIMEOUT_MS): Boolean {
+        if (device.bondState == BluetoothDevice.BOND_BONDED) return true
+        Log.i(TAG, "ensureBonded: ${device.address} not bonded (state=${device.bondState}) — createBond()")
+        val result = Channel<Boolean>(Channel.CONFLATED)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+                @Suppress("DEPRECATION")
+                val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                if (dev?.address != device.address) return
+                when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)) {
+                    BluetoothDevice.BOND_BONDED -> { Log.i(TAG, "ensureBonded: BONDED"); result.trySend(true) }
+                    BluetoothDevice.BOND_NONE -> { Log.w(TAG, "ensureBonded: bond failed (BOND_NONE)"); result.trySend(false) }
+                    else -> { /* BOND_BONDING — keep waiting */ }
+                }
+            }
+        }
+        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            context.registerReceiver(receiver, filter)
+        }
+        return try {
+            val started = runCatching { device.createBond() }.getOrDefault(false)
+            Log.i(TAG, "ensureBonded: createBond() started=$started")
+            withTimeoutOrNull(timeoutMs) { result.receive() } ?: run {
+                Log.w(TAG, "ensureBonded: timed out after ${timeoutMs}ms waiting for bond"); false
+            }
+        } finally {
+            runCatching { context.unregisterReceiver(receiver) }
         }
     }
 
@@ -477,6 +528,7 @@ class DashBleClient(
         private const val WIRE = "KoveWire" // raw TX/RX byte monitor — `adb logcat -s KoveWire`
         private const val SCAN_SETTLE_MS = 2500L // collect all CQKY_ dashes, then pick strongest
         private const val DIRECT_CONNECT_TIMEOUT_MS = 12_000L // known-MAC connect before scan fallback
+        private const val BOND_TIMEOUT_MS = 30_000L // wait for createBond() (incl. user accepting the pair dialog)
         private const val MAX_WRITE_RETRIES = 5
         private const val WRITE_RETRY_BACKOFF_MS = 500L
         private const val WRITE_ACK_TIMEOUT_MS = 500L
