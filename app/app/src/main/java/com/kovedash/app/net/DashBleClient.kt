@@ -197,8 +197,40 @@ class DashBleClient(
         return connected
     }
 
+    /**
+     * OS-driven fast reconnect to the known (bonded) dash MAC using autoConnect=true. Unlike
+     * the direct/scan path (autoConnect=false, which actively polls and gives up on a timeout),
+     * this registers a background connection: the Android BLE stack re-links the *instant* the
+     * dash starts advertising again after a key-on — no scan, no backoff. Ideal for the
+     * key-off/key-on cycle. We still bound it with a generous timeout so a truly-absent dash
+     * falls back to the scan path instead of pending forever.
+     */
     @Suppress("MissingPermission")
-    private suspend fun connectTo(device: BluetoothDevice): Boolean {
+    suspend fun reconnectAuto(mac: String, timeoutMs: Long): Boolean {
+        _state.value = State.CONNECTING
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: run { _state.value = State.DISCONNECTED; return false }
+        val dev = runCatching { adapter.getRemoteDevice(mac) }.getOrNull()
+            ?: run { _state.value = State.DISCONNECTED; return false }
+        // Drop any stale GATT before arming a fresh autoConnect (a lingering handle keeps the
+        // dash from advertising, which would starve the reconnect).
+        runCatching { gatt?.disconnect(); gatt?.close() }
+        gatt = null; writeChar = null
+        Log.i(TAG, "reconnectAuto: arming autoConnect=true to $mac (timeout ${timeoutMs}ms)")
+        val ok = withTimeoutOrNull(timeoutMs) { connectTo(dev, autoConnect = true) } ?: false
+        if (ok) {
+            connectedDeviceAddress = mac
+            _state.value = State.CONNECTED
+        } else {
+            Log.w(TAG, "reconnectAuto: no re-link within timeout — closing, caller may fall back to scan")
+            runCatching { gatt?.disconnect(); gatt?.close() }
+            gatt = null; writeChar = null
+            _state.value = State.DISCONNECTED
+        }
+        return ok
+    }
+
+    @Suppress("MissingPermission")
+    private suspend fun connectTo(device: BluetoothDevice, autoConnect: Boolean = false): Boolean {
         // The dash drops an UNBONDED LE link every ~30s (issue #5): each drop resets the GATT,
         // the seq counter, and the handshake — wiping any native widget state, so weather /
         // elevation / turn-by-turn never persist long enough to render. Establish the bond FIRST
@@ -285,9 +317,9 @@ class DashBleClient(
         }
 
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+            device.connectGatt(context, autoConnect, callback, BluetoothDevice.TRANSPORT_LE)
         } else {
-            device.connectGatt(context, false, callback)
+            device.connectGatt(context, autoConnect, callback)
         }
         }
     }
