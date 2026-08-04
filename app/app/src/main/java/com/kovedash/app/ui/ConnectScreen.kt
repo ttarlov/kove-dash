@@ -72,6 +72,7 @@ fun ConnectScreen(
     onOpenSettings: () -> Unit = {},
     onActivateSearch: () -> Unit = {},
     onEasterEgg: () -> Unit = {},
+    onGrantNotifAccess: () -> Unit = {},
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(DashTab.Map) }
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -93,6 +94,20 @@ fun ConnectScreen(
         if (!isLandscape) {
             SponsorBand(modifier = Modifier.fillMaxWidth())
             Header(state = state, onOpenSettings = onOpenSettings, onEasterEgg = onEasterEgg)
+        }
+        // Turn-by-turn reads Google Maps' navigation notification, which needs Notification
+        // Access. If it isn't granted, surface a prompt that deep-links to the system settings
+        // screen (AppHost.openNotificationAccessSettings). Clears automatically once granted —
+        // MainActivity.onResume re-checks on return. Shown in both orientations so it can't be
+        // missed before a ride.
+        if (!state.notificationAccessGranted) {
+            BeveledButton(
+                label = "ENABLE TURN-BY-TURN",
+                meta = "Grant Notification access →",
+                onClick = onGrantNotifAccess,
+                variant = BeveledButtonVariant.Action,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         // Landscape: split the body into [tabbed content | controls rail] so the map
         // gets the lion's share of vertical space instead of being squeezed to a
