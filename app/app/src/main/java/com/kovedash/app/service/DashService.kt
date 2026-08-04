@@ -598,14 +598,17 @@ class DashService : Service() {
     }
 
     /** Fetch current weather for the phone's location and push it to the dash (msg_id 25
-     *  type 11). Best-effort: silently skips if no location or no internet. */
+     *  type 11). Best-effort: skips if no location. Resilient to no/thin connectivity —
+     *  [WeatherSource.fetchCurrent] retries and falls back to the last good reading, so the
+     *  widget keeps showing weather (re-pushed each refresh) instead of dropping out. */
     private suspend fun sendWeatherOnConnect() {
         val loc = lastKnownLocation() ?: run { Log.i(TAG, "weather: no location — skipping"); return }
-        val w = WeatherSource.fetch(loc.first, loc.second) ?: return
+        val w = WeatherSource.fetchCurrent(loc.first, loc.second) ?: return
         runCatching {
             ble.sendJson(DashMessages.setWeather(w.dashCode, "${w.tempF}F", "${w.windMph}mph"))
         }.onFailure { Log.w(TAG, "weather send failed", it); return }
-        Log.i(TAG, "weather sent: ${w.tempF}F wind=${w.windMph}mph code=${w.dashCode}")
+        Log.i(TAG, "weather sent: ${w.tempF}F wind=${w.windMph}mph code=${w.dashCode}" +
+            if (w.stale) " (cached/stale)" else "")
     }
 
     /** Push the phone's real GPS elevation to the dash's native altitude field (msg_type=9).
