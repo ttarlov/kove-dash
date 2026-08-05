@@ -2,6 +2,8 @@ package com.kovedash.app.navshare
 
 import android.app.Notification
 import android.os.Bundle
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -77,11 +79,22 @@ object NavNotificationParser {
         // Nothing to say: no recognizable maneuver AND no distance → not a nav frame we care about.
         if (maneuver == Maneuver.UNKNOWN && distance < 0) return null
 
-        // Trip-level values live in the subText: "13 min · 4.6 mi · 11:55 ETA".
+        // Trip-level values live in the subText. Two Maps formats:
+        //   classic       "13 min · 4.6 mi · 11:55 ETA"  → duration token + distance
+        //   ProgressStyle "Arrive 15:15"                 → absolute arrival clock only
         //   distance token  → distance remaining to destination
         //   "N hr M min"     → time remaining on the trip
         val destMeters = parseDistanceToMeters(subText)
-        val remainSec = parseRemainingSeconds(subText)
+        // Prefer the explicit duration; if Maps gave only an arrival clock ("Arrive 15:15"),
+        // convert that absolute time into seconds-remaining so the dash ETA field populates.
+        val remainSec = parseRemainingSeconds(subText).let { dur ->
+            if (dur > 0) dur
+            else {
+                val arrMin = parseArrivalClockMinutes(subText)
+                if (arrMin >= 0) secondsUntilClockMinutes(arrMin, System.currentTimeMillis(), ZoneId.systemDefault())
+                else -1
+            }
+        }
 
         // The instruction text lives in different fields by notification format:
         //   classic  → title="500 m", text="Turn left onto Pearl St"
@@ -119,6 +132,62 @@ object NavNotificationParser {
         val min = MIN_RE.find(subText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         if (hr == 0 && min == 0) return -1
         return (hr * 60 + min) * 60
+    }
+
+    // Absolute arrival clock in the Maps subText: "Arrive 15:15" (24h) or "Arrive 3:15 PM"
+    // (12h). Guarded by \b and an optional am/pm so it won't grab a bare "13:00"-looking
+    // fragment out of a distance/road token. mm is 00-59; hh is 0-23 (24h) or 1-12 (12h).
+    private val CLOCK_RE =
+        Regex("""\b(\d{1,2}):(\d{2})\s*([AaPp][Mm])?\b""")
+
+    /**
+     * Parse an absolute wall-clock arrival time out of the subText into minutes-since-midnight
+     * (0..1439), or -1 if none. Pure (no timezone / "now") so it's deterministic to unit-test;
+     * the now/rollover math lives in [secondsUntilClockMinutes].
+     */
+    fun parseArrivalClockMinutes(subText: String?): Int {
+        if (subText.isNullOrBlank()) return -1
+        val m = CLOCK_RE.find(subText) ?: return -1
+        var hh = m.groupValues[1].toIntOrNull() ?: return -1
+        val mm = m.groupValues[2].toIntOrNull() ?: return -1
+        if (mm !in 0..59) return -1
+        val ampm = m.groupValues[3].lowercase(Locale.US)
+        when {
+            ampm.startsWith("a") -> { // 12 AM = 00:xx
+                if (hh !in 1..12) return -1
+                if (hh == 12) hh = 0
+            }
+            ampm.startsWith("p") -> { // 12 PM = 12:xx, 1-11 PM = +12
+                if (hh !in 1..12) return -1
+                if (hh != 12) hh += 12
+            }
+            else -> { // 24-hour
+                if (hh !in 0..23) return -1
+            }
+        }
+        return hh * 60 + mm
+    }
+
+    // An arrival clock that sits a little behind "now" means we've essentially arrived (Maps
+    // truncates to the minute, and it lags a few seconds), NOT that arrival is tomorrow. Only
+    // roll a clock over to tomorrow when it's more than this far in the past — comfortably
+    // larger than that lag, yet tiny next to any genuine midnight-crossing gap (which is always
+    // many hours). Same-minute / just-passed arrivals then read ~0, not +24h.
+    private const val ARRIVAL_ROLLOVER_GRACE_MIN = 10L
+
+    /**
+     * Convert a minutes-since-midnight arrival time into seconds from [nowMillis] until that
+     * wall-clock in [zone], clamped to >= 0. An arrival still ahead of (or within
+     * [ARRIVAL_ROLLOVER_GRACE_MIN] of) now is today; one well in the past is tomorrow (a trip
+     * that crosses midnight). Pure given its args → testable with a fixed clock + zone.
+     */
+    fun secondsUntilClockMinutes(arrivalMinutesSinceMidnight: Int, nowMillis: Long, zone: ZoneId): Int {
+        val now = Instant.ofEpochMilli(nowMillis).atZone(zone)
+        var arrival = now.toLocalDate()
+            .atTime(arrivalMinutesSinceMidnight / 60, arrivalMinutesSinceMidnight % 60)
+            .atZone(zone)
+        if (arrival.isBefore(now.minusMinutes(ARRIVAL_ROLLOVER_GRACE_MIN))) arrival = arrival.plusDays(1)
+        return java.time.Duration.between(now, arrival).seconds.coerceAtLeast(0L).toInt()
     }
 
     /**

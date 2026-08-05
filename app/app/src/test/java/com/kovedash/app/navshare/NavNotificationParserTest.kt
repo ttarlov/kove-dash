@@ -2,6 +2,8 @@ package com.kovedash.app.navshare
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneOffset
 
 class NavNotificationParserTest {
 
@@ -56,5 +58,59 @@ class NavNotificationParserTest {
         assertEquals(-1, NavNotificationParser.parseRemainingSeconds("4.6 mi"))
         assertEquals(-1, NavNotificationParser.parseRemainingSeconds(""))
         assertEquals(-1, NavNotificationParser.parseRemainingSeconds(null))
+    }
+
+    @Test
+    fun arrival_clock_minutes() {
+        // 24-hour ("Arrive 15:15") — the current Maps ProgressStyle format.
+        assertEquals(15 * 60 + 15, NavNotificationParser.parseArrivalClockMinutes("Arrive 15:15"))
+        // 12-hour with AM/PM.
+        assertEquals(15 * 60 + 15, NavNotificationParser.parseArrivalClockMinutes("Arrive 3:15 PM"))
+        assertEquals(9 * 60 + 5, NavNotificationParser.parseArrivalClockMinutes("Arrive 9:05 AM"))
+        assertEquals(0, NavNotificationParser.parseArrivalClockMinutes("Arrive 12:00 AM"))   // midnight
+        assertEquals(12 * 60 + 30, NavNotificationParser.parseArrivalClockMinutes("Arrive 12:30 PM")) // noon+30
+        // Classic subtext still yields its ETA clock (parse() only reaches here when the
+        // duration token is absent, so this documents the fallback, not a regression).
+        assertEquals(11 * 60 + 55, NavNotificationParser.parseArrivalClockMinutes("13 min · 4.6 mi · 11:55 ETA"))
+    }
+
+    @Test
+    fun arrival_clock_minutes_rejects_garbage() {
+        assertEquals(-1, NavNotificationParser.parseArrivalClockMinutes("Arrive at your destination"))
+        assertEquals(-1, NavNotificationParser.parseArrivalClockMinutes(""))
+        assertEquals(-1, NavNotificationParser.parseArrivalClockMinutes(null))
+        assertEquals(-1, NavNotificationParser.parseArrivalClockMinutes("Arrive 10:75")) // bad minute
+        assertEquals(-1, NavNotificationParser.parseArrivalClockMinutes("Arrive 25:00")) // bad 24h hour
+        assertEquals(-1, NavNotificationParser.parseArrivalClockMinutes("Arrive 13:00 PM")) // bad 12h hour
+    }
+
+    @Test
+    fun seconds_until_clock() {
+        val z = ZoneOffset.UTC
+        val now = Instant.parse("2026-08-05T14:00:00Z").toEpochMilli()
+        // 15:15 is 1h15m ahead of 14:00.
+        assertEquals(75 * 60, NavNotificationParser.secondsUntilClockMinutes(15 * 60 + 15, now, z))
+        // 09:00 already passed today → tomorrow 09:00 = 19h ahead.
+        assertEquals(19 * 3600, NavNotificationParser.secondsUntilClockMinutes(9 * 60, now, z))
+    }
+
+    @Test
+    fun seconds_until_clock_just_passed_is_now_not_tomorrow() {
+        val z = ZoneOffset.UTC
+        val now = Instant.parse("2026-08-05T14:00:00Z").toEpochMilli()
+        // Same minute → ~0, must NOT roll to +24h.
+        assertEquals(0, NavNotificationParser.secondsUntilClockMinutes(14 * 60, now, z))
+        // 2 min past (within the 10-min grace) → clamped to 0, still today.
+        assertEquals(0, NavNotificationParser.secondsUntilClockMinutes(13 * 60 + 58, now, z))
+        // 15 min past (beyond grace) → tomorrow 13:45 = 23h45m ahead.
+        assertEquals((23 * 60 + 45) * 60, NavNotificationParser.secondsUntilClockMinutes(13 * 60 + 45, now, z))
+    }
+
+    @Test
+    fun seconds_until_clock_crosses_midnight() {
+        val z = ZoneOffset.UTC
+        val now = Instant.parse("2026-08-05T23:50:00Z").toEpochMilli()
+        // Arriving 00:05 (tomorrow) is 15 min away.
+        assertEquals(15 * 60, NavNotificationParser.secondsUntilClockMinutes(5, now, z))
     }
 }
