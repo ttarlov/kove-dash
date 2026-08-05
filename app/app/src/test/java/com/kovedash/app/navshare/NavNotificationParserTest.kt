@@ -37,6 +37,22 @@ class NavNotificationParserTest {
     }
 
     @Test
+    fun destination_meters_from_progress() {
+        // progressMax = total route meters, progress = meters travelled → remaining = max - progress.
+        assertEquals(7315, NavNotificationParser.destinationMetersFromProgress(0, 7315))     // at start
+        assertEquals(5315, NavNotificationParser.destinationMetersFromProgress(2000, 7315))  // mid-route
+        assertEquals(0, NavNotificationParser.destinationMetersFromProgress(7315, 7315))     // arrived
+    }
+
+    @Test
+    fun destination_meters_from_progress_rejects_unusable() {
+        assertEquals(-1, NavNotificationParser.destinationMetersFromProgress(0, 0))       // no route yet
+        assertEquals(-1, NavNotificationParser.destinationMetersFromProgress(0, -5))      // bad max
+        assertEquals(-1, NavNotificationParser.destinationMetersFromProgress(-10, 7315))  // bad progress
+        assertEquals(-1, NavNotificationParser.destinationMetersFromProgress(8000, 7315)) // progress > max (reroute)
+    }
+
+    @Test
     fun road_abbreviation() {
         assertEquals("W Pennsylvania Ave", NavNotificationParser.abbreviateRoad("West Pennsylvania Avenue"))
         assertEquals("N Broadway St", NavNotificationParser.abbreviateRoad("North Broadway Street"))

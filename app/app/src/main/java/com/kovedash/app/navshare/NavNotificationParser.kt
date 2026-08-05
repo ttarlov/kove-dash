@@ -77,10 +77,22 @@ object NavNotificationParser {
         // Nothing to say: no recognizable maneuver AND no distance → not a nav frame we care about.
         if (maneuver == Maneuver.UNKNOWN && distance < 0) return null
 
-        // Trip-level values live in the subText: "13 min · 4.6 mi · 11:55 ETA".
-        //   distance token  → distance remaining to destination
-        //   "N hr M min"     → time remaining on the trip
-        val destMeters = parseDistanceToMeters(subText)
+        // Distance to destination. Current Maps (ProgressStyle) puts NO distance in the
+        // subText — only an arrival clock ("Arrive 17:07") — but it exposes the route via the
+        // progress bar: progressMax ≈ total route METERS, progress = meters travelled, so
+        // remaining = progressMax − progress. Prefer that; fall back to the classic subText
+        // text token ("... · 4.6 mi · ...") when progress data isn't usable.
+        val indeterminate = extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false)
+        val destFromProgress =
+            if (indeterminate) -1
+            else destinationMetersFromProgress(
+                extras.getInt(Notification.EXTRA_PROGRESS, 0),
+                extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0),
+            )
+        val destMeters = if (destFromProgress >= 0) destFromProgress else parseDistanceToMeters(subText)
+
+        // Time remaining on the trip, from the classic subText "N hr M min" token (Maps'
+        // newer arrival-clock format carries no duration, so this is often -1).
         val remainSec = parseRemainingSeconds(subText)
 
         // The instruction text lives in different fields by notification format:
@@ -119,6 +131,19 @@ object NavNotificationParser {
         val min = MIN_RE.find(subText)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         if (hr == 0 && min == 0) return -1
         return (hr * 60 + min) * 60
+    }
+
+    /**
+     * Meters remaining to the destination, derived from the Maps notification's progress bar:
+     * `android.progressMax` is the total route length in meters, `android.progress` the meters
+     * travelled so far, so remaining = max − progress. Returns -1 (caller falls back to the
+     * subText text distance) when there's no usable progress: max <= 0, or progress out of the
+     * [0, max] range (a reroute can momentarily desync the two).
+     */
+    fun destinationMetersFromProgress(progress: Int, progressMax: Int): Int {
+        if (progressMax <= 0) return -1
+        if (progress < 0 || progress > progressMax) return -1
+        return progressMax - progress
     }
 
     /**
