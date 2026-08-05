@@ -25,6 +25,12 @@ The repository also contains a full write-up of the reverse-engineered wire prot
 - **Full Mapbox map** rendered on the phone and streamed to the dash as H.264. Includes destination search with autocomplete and Mapbox routing. Turn-advance / off-route / reroute logic is implemented and bench-validated; on-road behavior at speed is still being confirmed.
 - **GPX course loading and following** — load a `.gpx` track, see it drawn on the map, and follow it with distance-remaining / off-course readouts. Validated stationary; the moving "progress ticking down" path is not yet road-tested.
 
+
+<img width="4080" height="3072" alt="PXL_20260805_160031324" src="https://github.com/user-attachments/assets/288146c8-c289-4032-b05f-5fcb7af6dc7d" />
+<img width="4080" height="3072" alt="PXL_20260805_160013337" src="https://github.com/user-attachments/assets/887909aa-7555-4045-a823-7939583a2256" />
+<img width="4080" height="3072" alt="PXL_20260805_155954768" src="https://github.com/user-attachments/assets/07f63268-71fa-4918-9f60-9f0b33e3ca28" />
+
+
 **Connection model:**
 - Connect brings Wi-Fi up once to activate the dash's native rendering (a control channel that must come up once per power-cycle), then **parks Wi-Fi and runs BLE-only** for the low-power steady state. A single **Project** toggle brings Wi-Fi back up and starts video on demand, and drops it again when you turn projection off.
 - Auto-reconnects after a key-off/key-on cycle. (Reconnect after a BLE drop can currently take a couple of minutes — tightening that is on the roadmap.)
