@@ -16,6 +16,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -57,15 +58,26 @@ class DashBleClient(
     private var gatt: BluetoothGatt? = null
     private var writeChar: BluetoothGattCharacteristic? = null
 
-    // NOTE: we deliberately do NOT keep a resend buffer or answer the dash's retransmit
-    // requests (msg_id=10 item=7 "resume from index N" / item=9 "single packet loss N"). The
-    // OEM's WriteThread replays frames on these requests, but on our SV=3.0.4 dash that replay
-    // traffic re-congests the transparent BLE link and BREAKS the very multi-frame reassembly
-    // it's meant to fix. Leaving the link quiet lets the dash reassemble multi-frame widgets
-    // (native turn-by-turn) on its own — the proven recipe. See handleResendRequest below (a
-    // logging-only no-op) and the memory note kove_dash_wifi_activates_rendering. The frame
-    // buffer + resend replay path was removed once this was proven; restore from git history
-    // if a future firmware ever actually requires honoring the retransmit poll.
+    // Ring buffer of recently-sent frames, keyed by their per-frame seq. It backs a BOUNDED
+    // single-frame resend responder (see handleResendRequest): when the dash asks to retransmit
+    // a dropped frame (msg_id=10 item=7 "resume from N" / item=9 "single packet loss N") we hand
+    // back EXACTLY that one frame. Because a fire-and-forget NO_RESPONSE write can silently drop
+    // and our global seq only moves forward, an unanswered drop leaves the dash stuck on that seq
+    // forever (renders nothing until power-cycle). The OEM answered item=7 by replaying the whole
+    // tail [N..cursor] — that ~40-frame burst re-congested the transparent link and broke
+    // reassembly (why it was disabled). Single-frame-per-request is self-paced by the dash's own
+    // request cadence, NOT a burst — the whole bet of #16. Evicts oldest (lowest) seq past the cap.
+    // Guarded by [sentFramesLock]; cleared on a fresh GATT link (seq resets to 0 there).
+    private val sentFrames = object : LinkedHashMap<Int, ByteArray>(SENT_BUFFER_MAX, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ByteArray>?): Boolean =
+            size > SENT_BUFFER_MAX
+    }
+    private val sentFramesLock = Any()
+    // Storm guards (all guarded by [sentFramesLock]): per-seq dedup so a rapidly re-requested
+    // index isn't spammed, plus a hard cap of resends per rolling window as a runaway backstop.
+    private val lastResendAtBySeq = HashMap<Int, Long>()
+    private var resendWindowStartMs = 0L
+    private var resendsInWindow = 0
 
     // Serializes whole messages onto the wire. sendJson is called from several
     // concurrent coroutines (time-sync echo, handshake, probes); without this,
@@ -227,8 +239,15 @@ class DashBleClient(
                 writeChar = svc.getCharacteristic(WRITE_UUID)
                 // Fresh GATT link → the dash resets its receive cursor to 0, so we restart
                 // the package stream at 0. Keeps our package-index aligned with the dash's
-                // cur_package_index.
+                // cur_package_index. Drop the resend buffer + rate-limit state too: the old
+                // frames belong to the previous seq epoch and must never answer a new request.
                 seqCounter.set(0)
+                synchronized(sentFramesLock) {
+                    sentFrames.clear()
+                    lastResendAtBySeq.clear()
+                    resendWindowStartMs = 0L
+                    resendsInWindow = 0
+                }
                 writeChar?.let {
                     val p = it.properties
                     Log.i(WIRE, "ffe1 properties=0x%02X (WRITE=%b, WRITE_NO_RESP=%b)".format(
@@ -367,6 +386,10 @@ class DashBleClient(
         val startSeq = seqCounter.get()
         val frames = ByteCat.framesFor(json, startSeq)
         seqCounter.addAndGet(frames.size)
+        // Buffer each frame by its seq so we can honor a later single-frame resend request.
+        synchronized(sentFramesLock) {
+            frames.forEachIndexed { idx, f -> sentFrames[startSeq + idx] = f }
+        }
         Log.i(WIRE, "TX → ffe1  seq=$startSeq (${frames.size}f)  $json")
         frames.forEachIndexed { idx, f ->
             Log.i(WIRE, "   TX frame seq=${startSeq + idx}: ${hexTrim(f)}")
@@ -435,24 +458,61 @@ class DashBleClient(
     }
 
     /**
-     * The dash asks us to retransmit dropped frames: msg_id=10 item=7 "resume from
-     * cur_package_index N", item=9 "single packet loss packet_loss_index N". The OEM's
-     * WriteThread replays the buffered frames in response.
-     *
-     * We INTENTIONALLY do not. On our SV=3.0.4 dash those replay bursts re-congest the
-     * transparent BLE link (AT+Trans_Start flapping) and break the very multi-frame
-     * reassembly they're meant to fix — native turn-by-turn reassembles on its own only when
-     * the link is left quiet. So this is a logging-only no-op: we surface the request but
-     * never replay. (The frame buffer and replay machinery were removed once this was proven;
-     * see the note by the send path and kove_dash_wifi_activates_rendering.)
+     * The dash asks us to retransmit a dropped frame: msg_id=10 item=7 "resume from
+     * cur_package_index N", item=9 "single packet loss packet_loss_index N". We answer with
+     * EXACTLY the one buffered frame at seq N ([resendFrame]) — never the OEM's whole-tail
+     * replay, which stormed the transparent link and broke reassembly (#16). For item=7 we
+     * still send just frame N; the dash re-requests N+1, N+2… and walks forward, self-paced.
+     * Storm guards (per-seq dedup + a per-window cap) live in [resendFrame].
      */
     private suspend fun handleResendRequest(data: ByteArray) {
         val s = runCatching { String(data, Charsets.UTF_8) }.getOrNull() ?: return
         if (!s.contains("\"msg_id\"") || jsonInt(s, "msg_id") != 10) return
-        when (jsonInt(s, "item")) {
-            7 -> Log.i(TAG, "resend req item=7 index=${jsonInt(s, "cur_package_index")} — not answered (quiet-link recipe)")
-            9 -> Log.i(TAG, "resend req item=9 index=${jsonInt(s, "packet_loss_index")} — not answered (quiet-link recipe)")
+        val item = jsonInt(s, "item") ?: return
+        val seq = when (item) {
+            7 -> jsonInt(s, "cur_package_index")
+            9 -> jsonInt(s, "packet_loss_index")
+            else -> null
+        } ?: return
+        resendFrame(seq, item)
+    }
+
+    /**
+     * Retransmit the single buffered frame at [seq], if we still have it and the storm guards
+     * allow. Serialized through [sendMutex] so it can't race a live [sendJson] on the write-ack
+     * channel; does NOT touch [seqCounter] (it's a re-send of an existing seq, not a new frame).
+     */
+    private suspend fun resendFrame(seq: Int, item: Int) {
+        val now = SystemClock.elapsedRealtime()
+        val frame = synchronized(sentFramesLock) {
+            if (now - resendWindowStartMs > RESEND_WINDOW_MS) { resendWindowStartMs = now; resendsInWindow = 0 }
+            // Timestamps only matter inside the dedup window — drop the rest so this map can't
+            // grow across a long session.
+            lastResendAtBySeq.entries.removeAll { now - it.value > RESEND_DEDUP_MS }
+            val last = lastResendAtBySeq[seq]
+            when {
+                last != null && now - last < RESEND_DEDUP_MS -> null // just resent this seq; let it land
+                resendsInWindow >= MAX_RESENDS_PER_WINDOW -> {
+                    Log.w(TAG, "resend item=$item seq=$seq SUPPRESSED — storm guard ($resendsInWindow/${RESEND_WINDOW_MS}ms)")
+                    null
+                }
+                else -> sentFrames[seq]?.also {
+                    lastResendAtBySeq[seq] = now
+                    resendsInWindow++
+                }
+            }
         }
+        if (frame == null) {
+            // Either deduped (quiet), storm-guarded (logged above), or evicted from the buffer.
+            if (synchronized(sentFramesLock) { !sentFrames.containsKey(seq) }) {
+                Log.i(TAG, "resend item=$item seq=$seq — not in buffer (evicted); can't answer")
+            }
+            return
+        }
+        val g = gatt ?: return
+        val ch = writeChar ?: return
+        sendMutex.withLock { writeFrame(g, ch, frame) }
+        Log.i(TAG, "resend item=$item seq=$seq — sent 1 frame")
     }
 
     /** Pull an integer field out of the dash's tab-indented flat JSON without a full parser. */
@@ -500,6 +560,11 @@ class DashBleClient(
         private const val MAX_WRITE_RETRIES = 5
         private const val WRITE_RETRY_BACKOFF_MS = 500L
         private const val WRITE_ACK_TIMEOUT_MS = 500L
+        // Single-frame resend responder (#16).
+        private const val SENT_BUFFER_MAX = 256      // frames kept for resend (~27 KB of 104-byte frames)
+        private const val RESEND_DEDUP_MS = 250L     // don't resend the same seq more often than this
+        private const val RESEND_WINDOW_MS = 3000L   // storm-guard rolling window
+        private const val MAX_RESENDS_PER_WINDOW = 24 // hard cap on resends per window (runaway backstop)
         val SERVICE_UUID: UUID = UUID.fromString("0000e0ff-3c17-d293-8e48-14fe2e4da212")
         val WRITE_UUID: UUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
         val NOTIFY_UUID: UUID = UUID.fromString("0000ffe2-0000-1000-8000-00805f9b34fb")
