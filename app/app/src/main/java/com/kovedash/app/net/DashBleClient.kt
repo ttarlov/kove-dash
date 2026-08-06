@@ -482,6 +482,20 @@ class DashBleClient(
         runCatching { context.applicationContext.unregisterReceiver(adapterReceiver) }
     }
 
+    /**
+     * Drop the current GATT link so the [com.kovedash.app.service.DashService] reconnect
+     * supervisor re-links it. A fresh GATT resets [seqCounter] to 0, so the dash re-syncs its
+     * receive cursor — the clean recovery from a wedged multi-frame reassembly. Unlike [close]
+     * this keeps the adapter receiver registered: it's a relink, not a shutdown.
+     */
+    fun forceRelink() {
+        runCatching { gatt?.disconnect() }
+        runCatching { gatt?.close() }
+        gatt = null
+        writeChar = null
+        _state.value = State.DISCONNECTED
+    }
+
     data class NotifyEvent(val char: UUID, val bytes: ByteArray) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true

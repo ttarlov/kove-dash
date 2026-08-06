@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.kovedash.app.AppHost
@@ -189,6 +190,17 @@ class DashService : Service() {
     // tearing down: coldQuit sets state to DashState() (phase=IDLE), which would otherwise make
     // watchPhaseForNotification immediately notify() the "Idle" notification back into the shade.
     @Volatile private var quitting = false
+
+    // Wedge detection: the dash asks us to resend dropped frames (msg_id=10 item=7/9). We don't
+    // answer (replaying stormed the link — see closed #16/#17), so a genuinely stuck dash keeps
+    // asking — but SLOWLY (observed ~once every 12s, not a burst). So we detect by PERSISTENCE:
+    // if resend requests keep arriving across a streak longer than WEDGE_PERSIST_MS with no quiet
+    // gap, the multi-frame stream is wedged and won't self-heal — force a clean relink (fresh GATT
+    // resets seq→0 so the dash re-syncs). A quiet gap resets the streak (a transient loss the dash
+    // recovers from stays under the bar); a cooldown prevents relink loops.
+    private var wedgeStreakStartMs = 0L
+    private var wedgeLastReqMs = 0L
+    @Volatile private var lastWedgeRelinkMs = 0L
 
     private fun updateNotification(state: DashState) {
         if (quitting) return
@@ -972,8 +984,30 @@ class DashService : Service() {
      * just logged — version is already covered by the 17818 binary path, and we DELIBERATELY
      * do not answer the dash's item=7/9 retransmit requests. Replaying frames re-congests the
      * transparent BLE link and breaks the very multi-frame reassembly it's asking for; leaving
-     * the link quiet lets the dash reassemble on its own (the proven native-nav recipe).
+     * the link quiet lets the dash reassemble on its own (the proven native-nav recipe). When the
+     * requests instead PERSIST, the stream is wedged and won't self-heal — [maybeRelinkOnWedge].
      */
+
+    /**
+     * Track how long dash resend requests (item=7/9) have been arriving continuously. A quiet gap
+     * longer than [WEDGE_STREAK_GAP_MS] starts a fresh streak (so a transient loss the dash
+     * recovers from resets). Once a streak lasts past [WEDGE_PERSIST_MS] the dash is genuinely
+     * wedged on a lost frame we can't cheaply re-feed, so force a clean relink — a fresh GATT
+     * resets seq→0 and the dash reassembles from scratch. A [WEDGE_RELINK_COOLDOWN_MS] cooldown
+     * stops relink thrash. Tuned to tonight's ~1-request-per-12s wedge; adjust against ride logs.
+     */
+    private fun maybeRelinkOnWedge() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - wedgeLastReqMs > WEDGE_STREAK_GAP_MS) wedgeStreakStartMs = now // quiet gap → new streak
+        wedgeLastReqMs = now
+        if (now - wedgeStreakStartMs < WEDGE_PERSIST_MS) return                  // not persistent yet
+        if (now - lastWedgeRelinkMs < WEDGE_RELINK_COOLDOWN_MS) return           // just relinked
+        lastWedgeRelinkMs = now
+        wedgeStreakStartMs = now
+        Log.w(TAG, "dash wedged (resend reqs persisting >${WEDGE_PERSIST_MS}ms) — forcing clean relink")
+        ble.forceRelink()
+    }
+
     private suspend fun collectBleNotifies() {
         ble.notify.collect { event ->
             val text = String(event.bytes, Charsets.UTF_8)
@@ -1023,8 +1057,10 @@ class DashService : Service() {
                         .onFailure { Log.w(TAG, "setTime echo failed", it) }
                 }
                 6 -> Log.i(TAG, "dash → firmware version frame (item=6): $json") // dump for `cv` branch selector
-                7 -> Log.w(TAG, "dash → resend-from-index request (item=7): $json — intentionally not answered (quiet link)")
-                9 -> Log.w(TAG, "dash → packet-loss request (item=9): $json — intentionally not answered (quiet link)")
+                7, 9 -> {
+                    Log.w(TAG, "dash → resend request (item=$item): $json — not answered (quiet link); checking for wedge")
+                    maybeRelinkOnWedge()
+                }
                 else -> Log.d(TAG, "dash → msg_id=10 item=$item: $json")
             }
         }
@@ -1374,6 +1410,12 @@ class DashService : Service() {
         // How long to sit at IDLE before auto-stopping the foreground service (clears the
         // notification). Long enough that a normal startup IDLE→connecting never trips it.
         private const val IDLE_AUTOSTOP_GRACE_MS = 10_000L
+        // Wedge detection (reconnect-on-wedge). Relink when dash resend requests have been
+        // arriving continuously for this long (a quiet gap resets the streak). Tuned so a
+        // transient loss the dash self-recovers stays under the bar; adjust against ride logs.
+        private const val WEDGE_PERSIST_MS = 12_000L     // continuous resend requests this long = wedged
+        private const val WEDGE_STREAK_GAP_MS = 20_000L  // no request for this long → fresh streak
+        private const val WEDGE_RELINK_COOLDOWN_MS = 30_000L
         const val BATTERY_WARN_THRESHOLD = 20
         const val BATTERY_ABORT_THRESHOLD = 10
         // Which dash-button control_info cycles the map view. 4 = "lap" per the RE docs —
