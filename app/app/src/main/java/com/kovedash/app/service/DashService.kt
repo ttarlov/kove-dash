@@ -200,12 +200,13 @@ class DashService : Service() {
 
     // Wedge detection: the dash asks us to resend dropped frames (msg_id=10 item=7/9). We don't
     // answer (replaying stormed the link — see closed #16/#17), so a genuinely stuck dash keeps
-    // asking indefinitely and renders nothing until reset. If the requests persist past a
-    // threshold within a window, the multi-frame stream is wedged and won't self-heal — force a
-    // clean relink (fresh GATT resets seq→0 so the dash re-syncs its cursor). Cooldown prevents
-    // relink loops; a transient single-frame loss (which recovers on its own) stays under the bar.
-    private var wedgeWindowStartMs = 0L
-    private var wedgeRequestCount = 0
+    // asking — but SLOWLY (observed ~once every 12s, not a burst). So we detect by PERSISTENCE:
+    // if resend requests keep arriving across a streak longer than WEDGE_PERSIST_MS with no quiet
+    // gap, the multi-frame stream is wedged and won't self-heal — force a clean relink (fresh GATT
+    // resets seq→0 so the dash re-syncs). A quiet gap resets the streak (a transient loss the dash
+    // recovers from stays under the bar); a cooldown prevents relink loops.
+    private var wedgeStreakStartMs = 0L
+    private var wedgeLastReqMs = 0L
     @Volatile private var lastWedgeRelinkMs = 0L
 
     private fun updateNotification(state: DashState) {
@@ -1046,25 +1047,22 @@ class DashService : Service() {
      */
 
     /**
-     * Count dash resend requests (item=7/9) in a rolling window; once they persist past
-     * [WEDGE_REQUEST_THRESHOLD] within [WEDGE_WINDOW_MS] the dash is wedged (stuck on a lost frame
-     * we can't cheaply re-feed), so force a clean relink — a fresh GATT resets seq→0 and the dash
-     * reassembles from scratch. A [WEDGE_RELINK_COOLDOWN_MS] cooldown stops relink thrash, and the
-     * threshold keeps a transient single-frame loss (which the dash recovers from on its own) from
-     * tripping it. Conservative defaults — tune against ride logs.
+     * Track how long dash resend requests (item=7/9) have been arriving continuously. A quiet gap
+     * longer than [WEDGE_STREAK_GAP_MS] starts a fresh streak (so a transient loss the dash
+     * recovers from resets). Once a streak lasts past [WEDGE_PERSIST_MS] the dash is genuinely
+     * wedged on a lost frame we can't cheaply re-feed, so force a clean relink — a fresh GATT
+     * resets seq→0 and the dash reassembles from scratch. A [WEDGE_RELINK_COOLDOWN_MS] cooldown
+     * stops relink thrash. Tuned to tonight's ~1-request-per-12s wedge; adjust against ride logs.
      */
     private fun maybeRelinkOnWedge() {
         val now = SystemClock.elapsedRealtime()
-        if (now - wedgeWindowStartMs > WEDGE_WINDOW_MS) {
-            wedgeWindowStartMs = now
-            wedgeRequestCount = 0
-        }
-        wedgeRequestCount++
-        if (wedgeRequestCount < WEDGE_REQUEST_THRESHOLD) return
-        if (now - lastWedgeRelinkMs < WEDGE_RELINK_COOLDOWN_MS) return
+        if (now - wedgeLastReqMs > WEDGE_STREAK_GAP_MS) wedgeStreakStartMs = now // quiet gap → new streak
+        wedgeLastReqMs = now
+        if (now - wedgeStreakStartMs < WEDGE_PERSIST_MS) return                  // not persistent yet
+        if (now - lastWedgeRelinkMs < WEDGE_RELINK_COOLDOWN_MS) return           // just relinked
         lastWedgeRelinkMs = now
-        wedgeRequestCount = 0
-        Log.w(TAG, "dash wedged (≥$WEDGE_REQUEST_THRESHOLD resend reqs / ${WEDGE_WINDOW_MS}ms) — forcing clean relink")
+        wedgeStreakStartMs = now
+        Log.w(TAG, "dash wedged (resend reqs persisting >${WEDGE_PERSIST_MS}ms) — forcing clean relink")
         ble.forceRelink()
     }
 
@@ -1510,11 +1508,11 @@ class DashService : Service() {
         // displays sentValue/1000 as "km", and miles = meters/1609.344, so sentValue =
         // meters * (1000/1609.344) = meters * 0.621371 makes "N.N km" read as N.N miles.
         private const val METERS_TO_MILES = 0.621371
-        // Wedge detection (reconnect-on-wedge). Trip a clean relink when the dash keeps asking
-        // to resend lost frames past this many requests in the window. Conservative so a
-        // transient loss doesn't relink unnecessarily; tune against ride logs.
-        private const val WEDGE_WINDOW_MS = 8_000L
-        private const val WEDGE_REQUEST_THRESHOLD = 12
+        // Wedge detection (reconnect-on-wedge). Relink when dash resend requests have been
+        // arriving continuously for this long (a quiet gap resets the streak). Tuned so a
+        // transient loss the dash self-recovers stays under the bar; adjust against ride logs.
+        private const val WEDGE_PERSIST_MS = 12_000L     // continuous resend requests this long = wedged
+        private const val WEDGE_STREAK_GAP_MS = 20_000L  // no request for this long → fresh streak
         private const val WEDGE_RELINK_COOLDOWN_MS = 30_000L
         const val BATTERY_WARN_THRESHOLD = 20
         const val BATTERY_ABORT_THRESHOLD = 10
