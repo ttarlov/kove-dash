@@ -190,6 +190,12 @@ class DashService : Service() {
     // watchPhaseForNotification immediately notify() the "Idle" notification back into the shade.
     @Volatile private var quitting = false
 
+    // The dash solicits the clock (msg_id=10 item=4) ~once per SECOND. Echoing setTime to every
+    // solicit was ~59% of all BLE traffic on a ride and starved multi-frame nav on a lossy link.
+    // The clock doesn't change — one setTime sets it — so we only answer the first few solicits
+    // after each (re)connect (drop-resilient), then go silent. Reset in runHandshake.
+    @Volatile private var timeSyncEchoesLeft = 0
+
     private fun updateNotification(state: DashState) {
         if (quitting) return
         val (title, text) = when (state.phase) {
@@ -577,6 +583,9 @@ class DashService : Service() {
         // Post-version-reply burst — order matters; OEM at BleConnectWrapper.java:934-963.
         ble.sendJson(DashMessages.setTime())
         Log.i(TAG, "handshake: msg_id 11 setTime pushed")
+        // Allow a few solicit-echoes right after connect so the dash reliably applies the time
+        // even if the unsolicited push above dropped; after that we stop echoing (see item=4).
+        timeSyncEchoesLeft = TIME_SYNC_ECHO_MAX
         delay(500)
         ble.sendJson(DashMessages.sendLinkInfo())
         delay(500)
@@ -992,10 +1001,11 @@ class DashService : Service() {
 
     /**
      * The dash actively pushes us msg_id=10 frames with various `item` values; we have
-     * to react. Most-important: item=4 is a time-sync solicitation (dash asks "what time
-     * is it, here's my tag"), and the OEM apps echo back msg_id=11 with that tag (see
-     * phase2/_re_report_greentrip.md §5.4). Without this echo, the dash may not actually
-     * apply our unsolicited setTime push from the handshake.
+     * to react. item=4 is a time-sync solicitation (dash asks "what time is it, here's my
+     * tag") that the dash repeats ~once per SECOND; the OEM echoes msg_id=11 with that tag
+     * (phase2/_re_report_greentrip.md §5.4). We echo only the FIRST few solicits per connect
+     * (enough for the dash to apply the time), then go silent — answering every 1 Hz solicit
+     * was ~59% of our BLE traffic and starved multi-frame nav on a lossy link (#19).
      *
      * Other inbound items we observe (item=6 firmware-version, item=7/9 resend requests) are
      * just logged — version is already covered by the 17818 binary path, and we DELIBERATELY
@@ -1046,10 +1056,16 @@ class DashService : Service() {
             val item = MiniJson.number(json, "item")?.toIntOrNull() ?: return@collect
             when (item) {
                 4 -> {
-                    val tag = MiniJson.number(json, "tag")?.toIntOrNull() ?: -1
-                    Log.i(TAG, "dash → time-sync solicit (item=4, tag=$tag); echoing setTime")
-                    runCatching { ble.sendJson(DashMessages.setTime(tag = tag)) }
-                        .onFailure { Log.w(TAG, "setTime echo failed", it) }
+                    // Answer only the first few solicits per connect (the clock is now set),
+                    // then stay silent — echoing every ~1 Hz solicit was ~59% of our BLE
+                    // traffic and starved multi-frame nav. The dash keeps its own RTC.
+                    if (timeSyncEchoesLeft > 0) {
+                        timeSyncEchoesLeft--
+                        val tag = MiniJson.number(json, "tag")?.toIntOrNull() ?: -1
+                        Log.i(TAG, "dash → time-sync solicit (item=4, tag=$tag); echoing setTime ($timeSyncEchoesLeft left)")
+                        runCatching { ble.sendJson(DashMessages.setTime(tag = tag)) }
+                            .onFailure { Log.w(TAG, "setTime echo failed", it) }
+                    }
                 }
                 6 -> Log.i(TAG, "dash → firmware version frame (item=6): $json") // dump for `cv` branch selector
                 7 -> Log.w(TAG, "dash → resend-from-index request (item=7): $json — intentionally not answered (quiet link)")
@@ -1430,6 +1446,9 @@ class DashService : Service() {
         // How long to sit at IDLE before auto-stopping the foreground service (clears the
         // notification). Long enough that a normal startup IDLE→connecting never trips it.
         private const val IDLE_AUTOSTOP_GRACE_MS = 10_000L
+        // Number of dash clock solicits to echo per connect before going silent. >1 for
+        // drop-resilience (an early setTime frame may be lost); the clock is set after one.
+        private const val TIME_SYNC_ECHO_MAX = 3
         const val BATTERY_WARN_THRESHOLD = 20
         const val BATTERY_ABORT_THRESHOLD = 10
         // Which dash-button control_info cycles the map view. 4 = "lap" per the RE docs —
