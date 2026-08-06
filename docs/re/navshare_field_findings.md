@@ -82,10 +82,49 @@ and chattering) until a **power-cycle** resets its receive cursor.
 
 **Do not** answer this with the OEM's whole-tail replay (`item:7` → resend `[N..cursor]`,
 ~40 frames): that burst re-congests the transparent link and breaks reassembly (the reason
-the responder was originally disabled). The fix (issue #16 / PR #17) is a **bounded
-single-frame responder**: answer `item:7`/`item:9` with exactly the one requested frame from a
-small ring buffer, self-paced by the dash's own re-request cadence, guarded by per-seq dedup
-and a per-window resend cap. See `net/DashBleClient.kt` `handleResendRequest` / `resendFrame`.
+the responder was originally disabled).
+
+**A single-frame responder was tried and ABANDONED (#16/#17, closed).** Answering `item:7/9`
+with just the one requested frame *sounds* self-pacing, but on a real ride the dash falls
+behind faster than the one-frame-per-request walk can catch up: the backlog grows unbounded
+(observed: our seq at 1207 while the dash's cursor was ~564 — ~15 min of lag), and the dash
+even asks for frames already evicted from the buffer. It converts a hard wedge into creeping
+multi-minute lag. Don't retry this.
+
+**The recovery that works is a clean RELINK (#21 / PR #22).** The dash resets its receive
+cursor to 0 on a fresh GATT link, so when resend requests *persist* (tonight's wedge re-asked
+~once every 12s, not in a burst), force a GATT reconnect — both sides reset to seq 0 and the
+dash reassembles from scratch. `DashService.maybeRelinkOnWedge` → `DashBleClient.forceRelink`.
+Pair it with cutting baseline traffic (below) so drops — and thus wedges — become rare.
+
+## Baseline BLE traffic: the clock echo is the hog (#19)
+
+The dash solicits the wall clock (`msg_id:10 item:4`) **~once per second** and the OEM echoes
+`setTime` back to each. On a 28-min ride that was **707 of 1207 frames (59%)** of everything
+we sent — dwarfing weather+altitude (6 frames total) and starving multi-frame nav on a lossy
+link. Fix: echo only the first few solicits per connect, then go silent (`TIME_SYNC_ECHO_MAX`).
+The dash keeps its own RTC; the clock doesn't need per-second re-sync. Cuts ~60% of traffic.
+
+## Units: nav distance is metric-only in firmware (#23)
+
+The dash has a global metric/imperial setting we can push — `sendSetUnit` =
+`{"msg_id":25,"msg_type":14,"msg_source":2,"unit":N}` (`unit:1`=metric, `unit:2`=imperial, from
+ThinkerRide `JsonManager.sendSetUnit:2033` + `DeviceSettingActivity` picker). It **does** convert
+pushed **altitude** (raw meters) to feet — confirmed on-device (the dash labels it "foot").
+
+But it does **NOT** convert the nav **distance**. Reason, confirmed on our SV=3.0.4 dash: the
+dash renders the **legacy `msg_id:1` frame** for the finish flag, and that frame carries
+`cur/path_retain_distance` as **raw int meters with no unittype field** (`sendNaviInfoOld:1409`).
+The modern `msg_id:27` frame *does* carry `cur/path_cur_unittype`, but only supports `0=m` / `1=km`
+(no miles/feet code exists), and **the dash ignores the modern frame entirely** — proven by a
+live probe: with the modern path forced to `4.5`/`unittype:2` while the legacy path stayed `7314`,
+the dash showed ~7.3 km (the legacy meters). The OEM shows km here too. **Nav distance cannot be
+made imperial via the protocol.**
+
+Workaround (#23, imperial locales): pre-scale the destination distance ourselves —
+`sentMeters = realMeters × 0.621371` — so the dash's `N.N km` readout shows the **miles number**
+(the "km" label lies; the number is right). Turn distance stays metric (small values don't scale
+cleanly). See `forwardTbtInternal` + `METERS_TO_MILES`.
 
 ## Practical rules of thumb
 
