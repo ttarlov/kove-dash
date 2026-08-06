@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import com.kovedash.app.AppHost
 import com.kovedash.app.net.DashBleClient
 import com.kovedash.app.net.DashTcpServer
+import java.util.Locale
 import com.kovedash.app.net.DashWifi
 import com.kovedash.app.net.WeatherSource
 import com.kovedash.app.project.LiveProjectionSession
@@ -532,6 +533,11 @@ class DashService : Service() {
         return true
     }
 
+    /** True if the phone's region uses imperial units (US, Liberia, Myanmar) — drives the dash
+     *  unit push so nav distance / altitude render in miles-feet vs km-meters. */
+    private fun usesImperialUnits(): Boolean =
+        Locale.getDefault().country.uppercase(Locale.US) in setOf("US", "LR", "MM")
+
     /**
      * Matches the OEM ThinkerRide post-firmware-version burst order documented in
      * phase2/_re_report_thinkerride.md §4 step 15. setTime is the SECOND message after
@@ -548,6 +554,13 @@ class DashService : Service() {
         // Post-version-reply burst — order matters; OEM at BleConnectWrapper.java:934-963.
         ble.sendJson(DashMessages.setTime())
         Log.i(TAG, "handshake: msg_id 11 setTime pushed")
+        delay(500)
+        // Tell the dash which unit system to render app-pushed distances in (nav finish-flag,
+        // altitude). We send meters/km and the dash converts; without this it defaults to metric
+        // even when the dash's own odo menu is imperial. Derived from the phone's locale.
+        val imperial = usesImperialUnits()
+        ble.sendJson(DashMessages.setUnit(imperial))
+        Log.i(TAG, "handshake: msg_id 25 setUnit ${if (imperial) "imperial" else "metric"} pushed")
         delay(500)
         ble.sendJson(DashMessages.sendLinkInfo())
         delay(500)
