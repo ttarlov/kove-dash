@@ -205,6 +205,42 @@ class DashBleClient(
         // so the link stays up. No-op if already bonded (the normal, persistent case).
         ensureBonded(device)
         return suspendCancellableCoroutine { cont ->
+        // CCCD-enable + MTU must be SERIALIZED. AOSP busy-gates GATT operations —
+        // BluetoothGatt.writeDescriptor returns ERROR_GATT_WRITE_REQUEST_BUSY while another op is
+        // outstanding, and busy only clears on that op's callback. So firing the ffe2 and ffe3
+        // CCCD writes back-to-back in one callback silently drops the second, leaving that notify
+        // path OFF. We chain each step on the prior's callback:
+        //   ffe2 CCCD → (onDescriptorWrite) → ffe3 CCCD → (onDescriptorWrite) → requestMtu →
+        //   (onMtuChanged) → resume.
+        // issueCccd returns whether the write was actually queued; if not (missing char/desc, or
+        // refused) we advance the chain ourselves so a missing characteristic can't stall connect.
+        fun issueCccd(g: BluetoothGatt, uuid: UUID): Boolean {
+            val ch = g.getService(SERVICE_UUID)?.getCharacteristic(uuid) ?: return false
+            g.setCharacteristicNotification(ch, true)
+            val desc = ch.getDescriptor(CCCD) ?: return false
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(desc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
+                    android.bluetooth.BluetoothStatusCodes.SUCCESS
+            } else {
+                @Suppress("DEPRECATION") desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION") g.writeDescriptor(desc)
+            }
+        }
+        fun requestMtuOrResume(g: BluetoothGatt) {
+            val ok = runCatching { g.requestMtu(247) }.getOrDefault(false)
+            if (!ok) {
+                Log.w(TAG, "requestMtu(247) returned false — resuming connect without MTU bump")
+                if (cont.isActive) cont.resume(true)
+            }
+        }
+        // Advance the enable chain after [completed] finished (null = start it with ffe2).
+        fun proceedAfterCccd(g: BluetoothGatt, completed: UUID?) {
+            when (completed) {
+                null -> if (!issueCccd(g, NOTIFY_UUID)) { Log.w(WIRE, "ffe2 CCCD not issued — skipping"); proceedAfterCccd(g, NOTIFY_UUID) }
+                NOTIFY_UUID -> if (!issueCccd(g, CONTROL_UUID)) { Log.w(WIRE, "ffe3 CCCD not issued — skipping"); proceedAfterCccd(g, CONTROL_UUID) }
+                else -> requestMtuOrResume(g) // ffe3 (or an unexpected uuid) done → MTU, then resume
+            }
+        }
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                 when (newState) {
@@ -234,29 +270,22 @@ class DashBleClient(
                     Log.i(WIRE, "ffe1 properties=0x%02X (WRITE=%b, WRITE_NO_RESP=%b)".format(
                         p, p and 0x08 != 0, p and 0x04 != 0))
                 }
-                listOf(NOTIFY_UUID, CONTROL_UUID).forEach { uuid ->
-                    val ch = svc.getCharacteristic(uuid) ?: return@forEach
-                    g.setCharacteristicNotification(ch, true)
-                    val desc = ch.getDescriptor(CCCD)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        desc?.let { g.writeDescriptor(it, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) }
-                    } else {
-                        @Suppress("DEPRECATION")
-                        desc?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        @Suppress("DEPRECATION")
-                        desc?.let { g.writeDescriptor(it) }
-                    }
-                }
-                // Negotiate a larger MTU. Default is 23 bytes (20 byte payload), but we
-                // ship 104-byte frames. The OEM apps request 247 (185 byte payload).
-                // Without this, some Android BLE stacks silently truncate or drop writes
-                // that exceed the default. We hold the connect continuation open until
-                // onMtuChanged fires.
-                val mtuRequested = runCatching { g.requestMtu(247) }.getOrDefault(false)
-                if (!mtuRequested) {
-                    Log.w(TAG, "requestMtu(247) returned false — resuming connect without MTU bump")
-                    if (cont.isActive) cont.resume(true)
-                }
+                // Enable notifications SERIALLY (ffe2 → ffe3), then negotiate a larger MTU
+                // (default 23B; we ship 104B frames, OEM requests 247), then resume the connect
+                // continuation on onMtuChanged. Each step is chained on the prior's callback —
+                // see the helpers above for why back-to-back writes drop the second. Holding the
+                // continuation open until MTU means the handshake never writes ffe1 before the
+                // notify paths are actually up.
+                proceedAfterCccd(g, null)
+            }
+
+            override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                val chUuid = descriptor.characteristic?.uuid
+                Log.i(WIRE, "CCCD write ${chUuid?.let { short(it) } ?: "?"} status=$status" +
+                    if (status != 0) " (NON-ZERO = notify enable FAILED)" else "")
+                // Advance the chain. A non-null unexpected uuid falls through to MTU; only an
+                // explicit null (from onServicesDiscovered) restarts it, so guard against null here.
+                proceedAfterCccd(g, chUuid ?: CONTROL_UUID)
             }
 
             override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
