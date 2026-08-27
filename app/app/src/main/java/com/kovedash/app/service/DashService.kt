@@ -1042,25 +1042,48 @@ class DashService : Service() {
      * still dials 15456 on the rider's UP long-press. Stops any live projection first so the
      * 15456 listener is free (both paths bind the same port).
      */
-    private fun runProjectAsset(asset: String) {
-        Log.i(TAG, "easter egg: projecting canned asset '$asset'")
+    private suspend fun runProjectAsset(asset: String) {
+        Log.i(TAG, "easter egg: triggered (asset='$asset')")
+        // GATE #1 — the dash dials US on 15456, so there must be a live link. No dash → don't open
+        // a listener that can only time out and black the screen for nothing.
+        if (ble.connectionState.value != DashBleClient.State.CONNECTED) {
+            Log.w(TAG, "easter egg: dash not connected — ignoring (connect first). no state change.")
+            return
+        }
         runCatching { liveProjection.stop() } // free 15456 if live projection was armed
+        // GATE #2 — the dash reaches 15456 over Wi-Fi, but the BLE-primary steady state PARKS Wi-Fi.
+        // Without unparking, the listener opens on a phone the dash can't route to and it NEVER
+        // dials in — the main cause of "nothing happens, try again". Bring Wi-Fi up like arming does.
+        val weUnparked = wifiParked
+        if (weUnparked) {
+            Log.i(TAG, "easter egg: Wi-Fi parked — unparking so the dash can reach 15456")
+            if (!unparkWifi()) {
+                Log.w(TAG, "easter egg: Wi-Fi unpark FAILED — aborting cleanly (no black screen)")
+                return
+            }
+        }
         acquireProjectionWakeLock()
-        AppHost.updateState { it.copy(phase = ConnectionPhase.PROJECTING, liveMode = true, projectionWaitingForUp = true) }
-        // Unlike LiveProjectionSession, ProjectionSession has no phase/wake-lock lifecycle of its
-        // own. Wire its completion (dash closed the video socket, error, or stop) to the same
-        // teardown as a live drop so the wake lock is released and the UI falls back to READY —
-        // otherwise the easter egg leaks the wake lock and sticks at PROJECTING.
+        // Do NOT flip to PROJECTING here — that's what darkens the panel. Only show a waiting
+        // state; we go PROJECTING (and let MainActivity dim) from onStarted, once the dash has
+        // actually dialed in and the clip is streaming. This kills the "tap → black screen" bug.
+        AppHost.updateState { it.copy(liveMode = true, projectionWaitingForUp = true) }
+        projection.onStarted = {
+            Log.i(TAG, "easter egg: dash dialed in on 15456 — streaming now; screen dims")
+            AppHost.updateState { it.copy(phase = ConnectionPhase.PROJECTING, liveMode = true, projectionWaitingForUp = false) }
+        }
         projection.onEnded = {
-            Log.i(TAG, "easter egg: canned session ended — releasing wake lock, back to READY")
+            Log.i(TAG, "easter egg: session ended (clip done / dash closed / dial-in timeout) — back to READY")
             releaseProjectionWakeLock()
             AppHost.updateState {
-                if (it.phase == ConnectionPhase.PROJECTING || it.liveMode) {
+                if (it.phase == ConnectionPhase.PROJECTING || it.liveMode || it.projectionWaitingForUp) {
                     it.copy(phase = ConnectionPhase.READY, liveMode = false, projectionWaitingForUp = false)
                 } else it
             }
+            if (weUnparked) scope.launch { parkWifi() } // return to the BLE-primary steady state we found
         }
-        projection.start(assetName = asset)
+        Log.i(TAG, "easter egg: 15456 listener open, waiting for the dash to dial in " +
+            "(needs the UP long-press on the dash; timeout ${EASTER_EGG_DIAL_TIMEOUT_MS}ms)")
+        projection.start(assetName = asset, connectTimeoutMs = EASTER_EGG_DIAL_TIMEOUT_MS)
     }
 
     /**
@@ -1363,6 +1386,10 @@ class DashService : Service() {
         // Easter egg: stream the canned "this is fine" dog clip to the dash.
         const val ACTION_PROJECT_EASTER_EGG = "kovedash.PROJECT_EASTER_EGG"
         const val EASTER_EGG_ASSET = "thisisfine.h264"
+        // How long to hold the 15456 listener waiting for the dash to dial in before aborting
+        // cleanly (releases the wake lock, back to READY, no black screen). Generous so the
+        // rider has time to do the UP long-press on the dash that makes it dial.
+        const val EASTER_EGG_DIAL_TIMEOUT_MS = 15_000L
         const val ACTION_STOP = "kovedash.STOP"
         const val ACTION_QUIT = "kovedash.QUIT" // notification Disconnect: full teardown + kill process
         const val EXTRA_RESULT_CODE = "kovedash.resultCode"

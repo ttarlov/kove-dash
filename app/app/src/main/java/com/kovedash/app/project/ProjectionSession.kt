@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
@@ -39,12 +40,38 @@ class ProjectionSession(
      */
     var onEnded: (() -> Unit)? = null
 
-    fun start(width: Int = 1280, height: Int = 640, assetName: String = DemoFrameSource.DEFAULT_ASSET) {
+    /**
+     * Fired once when the dash actually dials in on 15456 (the stream is going live). Lets the
+     * owner defer PROJECTING/dim until there's really a stream — otherwise the UI darkens on the
+     * mere intent to project even if the dash never connects (the easter-egg "black screen" bug).
+     */
+    var onStarted: (() -> Unit)? = null
+
+    /**
+     * @param connectTimeoutMs if > 0, close the listener and end the session when the dash hasn't
+     *        dialed in within this window — so a triggered-but-unreachable projection (e.g. Wi-Fi
+     *        down, or no dash) fails cleanly instead of hanging with the listener open forever.
+     */
+    fun start(
+        width: Int = 1280,
+        height: Int = 640,
+        assetName: String = DemoFrameSource.DEFAULT_ASSET,
+        connectTimeoutMs: Long = 0L,
+    ) {
         if (!running.compareAndSet(false, true)) {
             Log.i(TAG, "start: already running, ignoring")
             return
         }
         Log.i(TAG, "start: opening 15456 listener, waiting for dash dial-in")
+        if (connectTimeoutMs > 0) {
+            scope.launch {
+                delay(connectTimeoutMs)
+                if (running.get() && socket.get() == null) {
+                    Log.w(TAG, "no dash dial-in within ${connectTimeoutMs}ms — closing 15456 listener")
+                    stop()
+                }
+            }
+        }
         serverJob = scope.launch(Dispatchers.IO) {
             // reuseAddress + a hoisted ServerSocket ref so stop() can free 15456 immediately —
             // otherwise a still-open listen socket blocks the live map's bind (EADDRINUSE) when
@@ -60,6 +87,7 @@ class ProjectionSession(
                     socket.set(s)
                     s.tcpNoDelay = true
                     Log.i(TAG, "15456 dash dialed in: ${s.remoteSocketAddress}")
+                    runCatching { onStarted?.invoke() }
                     sendHandshake(s.getOutputStream(), width, height)
                     Log.i(TAG, "15456 handshake sent (69B); streaming frames")
                     streamFrameLoop(s, assetName)
