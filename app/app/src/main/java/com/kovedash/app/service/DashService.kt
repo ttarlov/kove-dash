@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import com.kovedash.app.AppHost
 import com.kovedash.app.net.DashBleClient
 import com.kovedash.app.net.DashTcpServer
+import java.util.Locale
 import com.kovedash.app.net.DashWifi
 import com.kovedash.app.net.WeatherSource
 import com.kovedash.app.project.LiveProjectionSession
@@ -567,6 +568,11 @@ class DashService : Service() {
         } ?: false
     }
 
+    /** True if the phone's region uses imperial units (US, Liberia, Myanmar) — drives the dash
+     *  unit push so nav distance / altitude render in miles-feet vs km-meters. */
+    private fun usesImperialUnits(): Boolean =
+        Locale.getDefault().country.uppercase(Locale.US) in setOf("US", "LR", "MM")
+
     /**
      * Matches the OEM ThinkerRide post-firmware-version burst order documented in
      * phase2/_re_report_thinkerride.md §4 step 15. setTime is the SECOND message after
@@ -586,6 +592,13 @@ class DashService : Service() {
         // Allow a few solicit-echoes right after connect so the dash reliably applies the time
         // even if the unsolicited push above dropped; after that we stop echoing (see item=4).
         timeSyncEchoesLeft = TIME_SYNC_ECHO_MAX
+        delay(500)
+        // Tell the dash which unit system to render app-pushed distances in (nav finish-flag,
+        // altitude). We send meters/km and the dash converts; without this it defaults to metric
+        // even when the dash's own odo menu is imperial. Derived from the phone's locale.
+        val imperial = usesImperialUnits()
+        ble.sendJson(DashMessages.setUnit(imperial))
+        Log.i(TAG, "handshake: msg_id 25 setUnit ${if (imperial) "imperial" else "metric"} pushed")
         delay(500)
         ble.sendJson(DashMessages.sendLinkInfo())
         delay(500)
@@ -785,11 +798,17 @@ class DashService : Service() {
         // and blocking reassembly. Nav also lands at a low BLE seq (~10-13) because the
         // handshake is now lean. Dedup upstream (NavForwarder) keeps it one-shot-per-turn.
         //
-        // All distances are SI METERS, times SI SECONDS — the dash converts to the rider's
-        // display unit (imperial → feet/miles), same as the altitude field. -1 sentinels
-        // (Maps hadn't populated the subText yet) clamp to 0 so we never send garbage.
+        // Distances are SI METERS; the dash renders the legacy frame's raw meters as km. Unlike
+        // altitude (which the dash DOES convert to feet from the imperial setting), the nav
+        // distance field has no unit control in firmware — it's metric-only (confirmed: the dash
+        // uses the legacy msg_id=1 frame, which carries no unittype; the OEM shows km here too).
+        // So for imperial locales we scale the DESTINATION distance to miles ourselves: the dash
+        // then shows "N.N km" where the number is really MILES (the label lies; the number is
+        // right). Turn distance (cur) stays metric for now — small values don't scale cleanly.
+        // -1 sentinels (Maps hadn't populated yet) clamp to 0 so we never send garbage.
         val cur = curMeters.coerceAtLeast(0)
-        val path = pathMeters.coerceAtLeast(0)              // meters to destination
+        val pathReal = pathMeters.coerceAtLeast(0)          // true meters to destination
+        val path = if (usesImperialUnits()) (pathReal * METERS_TO_MILES + 0.5).toInt() else pathReal
         val remain = remainSec.coerceAtLeast(0)             // trip seconds remaining
         val rate = retainRate.coerceIn(0, 100)              // % of route travelled (0 if unknown)
         // Modern remain_time is a wall-clock arrival epoch (dash shows ETA); legacy remain_time
@@ -1449,6 +1468,10 @@ class DashService : Service() {
         // Number of dash clock solicits to echo per connect before going silent. >1 for
         // drop-resilience (an early setTime frame may be lost); the clock is set after one.
         private const val TIME_SYNC_ECHO_MAX = 3
+        // Scale real meters so the dash's km readout shows the MILES number instead: the dash
+        // displays sentValue/1000 as "km", and miles = meters/1609.344, so sentValue =
+        // meters * (1000/1609.344) = meters * 0.621371 makes "N.N km" read as N.N miles.
+        private const val METERS_TO_MILES = 0.621371
         const val BATTERY_WARN_THRESHOLD = 20
         const val BATTERY_ABORT_THRESHOLD = 10
         // Which dash-button control_info cycles the map view. 4 = "lap" per the RE docs —
