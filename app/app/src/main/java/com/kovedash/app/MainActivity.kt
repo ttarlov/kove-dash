@@ -33,6 +33,7 @@ import com.kovedash.app.ui.ConnectScreen
 import com.kovedash.app.ui.FullscreenSearch
 import com.kovedash.app.ui.PasswordDialog
 import com.kovedash.app.ui.SettingsScreen
+import com.kovedash.app.ui.SplashScreen
 import com.kovedash.app.ui.theme.KoveColors
 import com.kovedash.app.ui.theme.KoveTheme
 
@@ -134,6 +135,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Process-lifetime gate: the splash plays exactly once per fresh process (i.e. a cold start
+// after a full quit). A plain top-level flag survives activity recreation (rotation, etc.) but
+// resets when the OS tears the process down, which is exactly "cold load after full quit".
+private var splashPlayed = false
+
 @Composable
 private fun App() {
     KoveTheme {
@@ -205,6 +211,12 @@ private fun App() {
                     modifier = Modifier.fillMaxSize().background(KoveColors.Void),
                     onDone = { searching = false },
                 )
+            }
+            // Cold-start splash sits on top of the whole stack so the real UI can boot and
+            // auto-connect underneath while it plays. Shown once per process (see splashPlayed).
+            var showSplash by remember { mutableStateOf(!splashPlayed) }
+            if (showSplash) {
+                SplashScreen(onFinished = { splashPlayed = true; showSplash = false })
             }
         }
     }
