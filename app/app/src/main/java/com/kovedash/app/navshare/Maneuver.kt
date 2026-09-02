@@ -5,9 +5,14 @@ package com.kovedash.app.navshare
  * text today; an icon-bitmap classifier or Mapbox later). Mirrors the maneuver set
  * Gadgetbridge extracts from Google Maps navigation notifications.
  *
- * [dashIcon] maps each maneuver to the dash's native turn-glyph enum (1–48), documented
- * in docs/re/nav_widget_thinkerride.md §"Turn-icon enumeration". Keep this table the
- * single source of truth — a future [ManeuverClassifier] impl (icon matching) reuses it.
+ * [dashIcon] maps each maneuver to the dash's native turn-glyph enum. The decompiled OEM
+ * enum spans 1–48 (docs/re/nav_widget_thinkerride.md), but a live sweep of THIS firmware
+ * (SV=3.0.4) proved only codes 1–26 actually render — everything 27–48 draws nothing, and
+ * 17/18/19/25 are blank too. See docs/re/glyph_map.md for the ground-truth table. So this
+ * mapping stays strictly inside the codes that glyph; anything pointed at the 27–48 dead
+ * zone (the old MERGE/FORK/OFF_RAMP/ROUNDABOUT targets) blanked the arrow on real rides —
+ * that was the on-ramp-blanking bug. Keep this table the single source of truth — a future
+ * [ManeuverClassifier] impl (icon matching) reuses it.
  */
 enum class Maneuver {
     CONTINUE,
@@ -28,24 +33,30 @@ enum class Maneuver {
     ARRIVE,
     UNKNOWN;
 
-    /** Dash native glyph index (1–48). Fallback is 9 ("straight / continue / unknown"). */
+    /**
+     * Dash native glyph index — RESTRICTED to the codes that actually render on SV=3.0.4
+     * (1–26, minus the blanks 17/18/19/25). Never-blank fallback is 9 ("straight"). Every
+     * arm below is a verified-rendering glyph from docs/re/glyph_map.md.
+     */
     fun dashIcon(): Int = when (this) {
-        TURN_LEFT -> 2
-        TURN_RIGHT -> 3
-        SLIGHT_LEFT -> 4
-        SLIGHT_RIGHT -> 5
-        SHARP_LEFT -> 6
-        SHARP_RIGHT -> 7
-        // No dedicated "keep left/right" glyph on the dash — slight is the closest.
-        KEEP_LEFT -> 4
-        KEEP_RIGHT -> 5
-        UTURN -> 8
-        MERGE -> 47            // merge-left glyph (dash has 47/48; we don't split side yet)
-        FORK_LEFT -> 45
-        FORK_RIGHT -> 46
-        OFF_RAMP -> 43
-        ROUNDABOUT -> 31       // base roundabout; exit-number variants (32–42) are follow-up
-        ARRIVE -> 21
-        CONTINUE, UNKNOWN -> 9
+        TURN_LEFT -> 2         // left turn
+        TURN_RIGHT -> 3        // right turn
+        SLIGHT_LEFT -> 4       // slight/smooth left
+        SLIGHT_RIGHT -> 5      // slight/smooth right
+        SHARP_LEFT -> 6        // sharp left (past-90 angular)
+        SHARP_RIGHT -> 7       // sharp right
+        // "Keep/bear left|right" → the S-curve glyphs (bear to that side at a split).
+        KEEP_LEFT -> 12        // S-curve ending left
+        KEEP_RIGHT -> 11       // S-curve ending right
+        UTURN -> 8             // curved-sharp-left, past-90 (u-turn)
+        // Highway maneuvers — old targets (47/45/46/43/31) were all in the 27–48 dead zone
+        // and blanked the arrow. Remapped into rendering glyphs:
+        MERGE -> 20            // heavy straight arrow (merge / continue onto motorway)
+        FORK_LEFT -> 12        // S-curve ending left (bear left at fork)
+        FORK_RIGHT -> 11       // S-curve ending right (bear right at fork)
+        OFF_RAMP -> 21         // long S-curve right into distance (reads as an exit ramp)
+        ROUNDABOUT -> 26       // roundabout (lollipop); exit-number variants don't render here
+        ARRIVE -> 10           // arrive / destination glyph (was 21, which is the ramp glyph)
+        CONTINUE, UNKNOWN -> 9 // straight — the never-blank fallback
     }
 }
