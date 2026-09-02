@@ -220,6 +220,11 @@ class DashService : Service() {
     // (re)set at the top of runHandshake; a dedicated short cooldown lets it retry a lossy link.
     @Volatile private var connectedAtMs = 0L
     @Volatile private var lastActivationRelinkMs = 0L
+    // Frame loss during the cold-connect handshake is transient RF (the dash radio is still
+    // settling right after ignition-on), so relinking repeatedly — the way the user hammers
+    // restart — eventually lands a clean handshake. Bounded so a genuinely dead link doesn't
+    // loop forever. Reset per fresh runConnect (NOT per handshake — each relink re-handshakes).
+    @Volatile private var activationRelinkCount = 0
 
     private fun withinActivationWindow() =
         connectedAtMs != 0L && SystemClock.elapsedRealtime() - connectedAtMs < ACTIVATION_WINDOW_MS
@@ -854,6 +859,7 @@ class DashService : Service() {
 
     private suspend fun runConnect() {
         Log.i(TAG, "runConnect: begin")
+        activationRelinkCount = 0  // fresh connect → fresh cold-loss retry budget
         AppHost.updateState { it.copy(phase = ConnectionPhase.JOINING_WIFI, errorMessage = null) }
 
         // 1. Make sure we have a password to try.
@@ -1141,15 +1147,19 @@ class DashService : Service() {
                 7, 9 -> {
                     if (withinActivationWindow()) {
                         // Lost fragment during the fresh handshake → the dash won't come up and
-                        // won't self-heal. Relink now (fresh GATT re-handshake) instead of waiting
-                        // out the slow wedge-persistence path — this is the auto-restart.
+                        // won't self-heal. Relink (fresh GATT re-handshake) — the auto-restart.
+                        // Retry a few times: cold-connect loss is transient, so a later attempt
+                        // lands clean. A min-gap avoids double-firing within one handshake; a max
+                        // count stops a dead link from looping forever.
                         val now = SystemClock.elapsedRealtime()
-                        if (now - lastActivationRelinkMs >= ACTIVATION_RELINK_COOLDOWN_MS) {
+                        val gapOk = now - lastActivationRelinkMs >= ACTIVATION_RELINK_MIN_GAP_MS
+                        if (activationRelinkCount < ACTIVATION_RELINK_MAX && gapOk) {
+                            activationRelinkCount++
                             lastActivationRelinkMs = now
-                            Log.w(TAG, "dash → resend request (item=$item) in activation window — lost handshake fragment; forcing clean relink")
+                            Log.w(TAG, "dash → resend request (item=$item) in activation window — lost handshake fragment; clean relink #$activationRelinkCount/$ACTIVATION_RELINK_MAX")
                             ble.forceRelink()
                         } else {
-                            Log.w(TAG, "dash → resend request (item=$item) in activation window but relink on cooldown ($json)")
+                            Log.w(TAG, "dash → resend request (item=$item) in activation window; relink suppressed (count=$activationRelinkCount, gapOk=$gapOk)")
                         }
                     } else {
                         Log.w(TAG, "dash → resend request (item=$item): $json — not answered (quiet link); checking for wedge")
@@ -1549,7 +1559,8 @@ class DashService : Service() {
         // handshake fragment → the dash never activates and won't self-heal, so relink at once
         // rather than waiting out WEDGE_PERSIST_MS. Short cooldown so a lossy link can retry.
         private const val ACTIVATION_WINDOW_MS = 20_000L
-        private const val ACTIVATION_RELINK_COOLDOWN_MS = 10_000L
+        private const val ACTIVATION_RELINK_MIN_GAP_MS = 2_000L  // don't re-fire within one handshake
+        private const val ACTIVATION_RELINK_MAX = 5              // cold-loss retries before giving up
         const val BATTERY_WARN_THRESHOLD = 20
         const val BATTERY_ABORT_THRESHOLD = 10
         // Which dash-button control_info cycles the map view. 4 = "lap" per the RE docs —
