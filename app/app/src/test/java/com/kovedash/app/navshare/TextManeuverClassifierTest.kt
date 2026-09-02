@@ -52,7 +52,7 @@ class TextManeuverClassifierTest {
         assertEquals(9, Maneuver.UNKNOWN.dashIcon())
         assertEquals(9, Maneuver.CONTINUE.dashIcon())
         assertEquals(10, Maneuver.ARRIVE.dashIcon())
-        assertEquals(26, Maneuver.ROUNDABOUT.dashIcon())
+        assertEquals(12, Maneuver.ROUNDABOUT.dashIcon())
     }
 
     /**

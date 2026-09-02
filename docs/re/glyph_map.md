@@ -15,8 +15,8 @@ Road name on dash = `IC-N` so the code is visible. Distance = 500m.
 | 8    | sharp-left, smooth/curved | like 6 but rounded — poss. u-turn-left or left curve |
 | 9    | straight arrow       | continue/straight |
 | 10   | arrive/destination   |       |
-| 11   | S-curve ending RIGHT | poss. keep-right / fork-right |
-| 12   | S-curve ending LEFT  | poss. keep-left / fork-left |
+| 11   | roundabout, exit bearing RIGHT | photo-verified 2026-09-02 (curved chevron arc, exits up-right) |
+| 12   | roundabout, exit STRAIGHT | photo-verified — clearest generic roundabout glyph |
 | 13   | "P" + coffee cup     | rest area / service stop POI (not a maneuver) |
 | 14   | hand/palm + Chinese chars | China POI — poss. toll booth / checkpoint / pay-station (not a maneuver) |
 | 15   | checkered/finish flag | destination-finish marker |
@@ -25,12 +25,12 @@ Road name on dash = `IC-N` so the code is visible. Distance = 500m.
 | 18   | BLANK (no glyph)     | empty slot |
 | 19   | BLANK (no glyph)     | empty slot |
 | 20   | straight arrow, heavier head | thicker than 9 — poss. merge/enter-highway straight. **on-ramp candidate** |
-| 21   | long S-curve RIGHT into distance | gentle merge-right (11 stretched). **on-ramp/merge candidate** |
+| 21   | roundabout, exit slightly-right-of-straight | photo-verified — another roundabout-exit variant |
 | 22   | rounded sharp-RIGHT, past-90° | curved mirror of 8. poss. u-turn-right / tight right loop |
 | 23   | gentle curve right   | similar to 5 |
 | 24   | gentle S-curve left  |       |
 | 25   | BLANK (no glyph)     | **empty** — backlog's "dedicated on-ramp 25" guess DISPROVEN |
-| 26   | roundabout (lollipop, exit down-right) | verify vs stray "empty" next session |
+| 26   | BLANK (no glyph)     | re-verified 2026-09-02 — the earlier "lollipop" read was a misfire; 26 is empty |
 | 27   | BLANK (no glyph)     | empty slot |
 | 28   | BLANK (no glyph)     | empty slot |
 | 29   | BLANK (no glyph)     | empty slot |
@@ -48,33 +48,36 @@ Road name on dash = `IC-N` so the code is visible. Distance = 500m.
 
 **Maneuver glyphs that render:**
 - 1 left · 2 left · 3 right · 4 slight-left · 5 slight-right · 6 sharp-left · 7 sharp-right
-- 8 curved-sharp-left (past-90) · 9 **straight** · 11 S-right · 12 S-left
-- 20 heavy-straight · 21 long-merge-right · 22 curved-sharp-right (past-90)
-- 23 gentle-right · 24 gentle-S-left · 26 roundabout
+- 8 curved-sharp-left (past-90) · 9 **straight**
+- 11/12/21 **roundabout-exit variants** (11 bears right, 12 straight, 21 slightly-right) — photo-verified
+- 20 heavy-straight (merge) · 22 curved-sharp-right (past-90) · 23 gentle-right · 24 gentle-S-left
 
-**Non-maneuver / POI glyphs:** 10 arrive · 13 rest-stop · 14 toll(?) · 15 finish-flag · 16 tunnel
+**Non-maneuver / POI glyphs:** 10 destination-pin (arrive) · 13 rest-stop · 14 toll(?) · 15 finish-flag · 16 tunnel
 
-**BLANK (empty slots — anything mapped here shows NO arrow):** 17, 18, 19, 25, **27–48 (all)**
+**BLANK (empty slots — anything mapped here shows NO arrow):** 17, 18, 19, 25, **26**, **27–48 (all)**
 
 ## Key takeaways for the on-ramp fix
-- The "dedicated on-ramp = 25" guess is **DISPROVEN** (25 is blank).
-- On-ramps/merges currently blank because our classifier sends a code in an empty slot.
-- **Best render-safe fallbacks for merge/on-ramp maneuvers:** 20 (heavy straight),
-  21 (long merge-right), or plain 9 (straight). Pick per turn direction.
+- The "dedicated on-ramp = 25" guess is **DISPROVEN** (25 is blank). **26 is also blank**
+  (the earlier "roundabout lollipop" read on 26 was a misfire).
+- On-ramps/merges blanked because the classifier sent codes in the 27–48 dead zone.
+- **Render-safe targets (all photo-verified 2026-09-02):** merge → 20 (heavy straight);
+  roundabout → 12 (or 11/21); off-ramp/fork/keep → 4/5 (slight L/R); arrive → 10 (destination pin).
 
-## Next steps (probe COMPLETE)
-1. Re-verify code 26 (roundabout vs the one stray "empty" report) — minor.
-2. Cross-ref codes 1–26 against the decompiled semantic enum in `docs/re/nav_widget_thinkerride.md`
-   to confirm intended meanings (esp. 8/22 curved-sharp = u-turn?, 20 heavy-straight, 21 merge).
-3. **Build the legacy classifier** (navshare/Maneuver.kt / dashIcon → legacy codes):
-   - Map every Google-Maps maneuver type to a rendering code in 1–26.
-   - CRITICAL: on-ramp / merge / fork maneuvers currently emit modern codes in the 27–48
-     dead zone → blank. Remap them into the renderable set:
-       * merge/continue-onto-highway → 20 (heavy straight) or 9 (straight)
-       * take-ramp-right / keep-right → 21 (long merge-right) or 5 (slight right) or 11 (S-right)
-       * take-ramp-left / keep-left → 24 (gentle S-left) or 4 (slight left) or 12 (S-left)
-       * roundabout → 26
-       * u-turn → 8 or 22 (curved past-90) — confirm direction
-   - Add a NEVER-BLANK fallback: any unmapped/unknown maneuver → 9 (straight) so an arrow always shows.
-4. Ride-verify the on-ramp case that started this.
+## Classifier remap — SHIPPED (navshare/Maneuver.kt)
+| maneuver | glyph | note |
+|---|---|---|
+| MERGE | 20 | heavy straight — verified |
+| ROUNDABOUT | 12 | roundabout glyph — verified (26 blank) |
+| OFF_RAMP | 5 | slight right (exits bear right) |
+| FORK_LEFT / FORK_RIGHT | 4 / 5 | slight L/R |
+| KEEP_LEFT / KEEP_RIGHT | 4 / 5 | slight L/R (unchanged — was already fine) |
+| ARRIVE | 10 | destination pin — verified (old 21 is a roundabout) |
+| all turns / u-turn / continue | 2–9 | unchanged |
+| unknown / fallback | 9 | never-blank straight |
+
+Guard test asserts every maneuver → 1–26 and never a blank slot.
+
+## Remaining
+- Cross-ref 1–26 against the decompiled semantic enum in `docs/re/nav_widget_thinkerride.md`.
+- Ride-verify the real on-ramp/merge/roundabout case that started this.
 

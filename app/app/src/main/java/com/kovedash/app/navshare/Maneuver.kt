@@ -45,18 +45,20 @@ enum class Maneuver {
         SLIGHT_RIGHT -> 5      // slight/smooth right
         SHARP_LEFT -> 6        // sharp left (past-90 angular)
         SHARP_RIGHT -> 7       // sharp right
-        // "Keep/bear left|right" → the S-curve glyphs (bear to that side at a split).
-        KEEP_LEFT -> 12        // S-curve ending left
-        KEEP_RIGHT -> 11       // S-curve ending right
+        // No dedicated "keep/bear" glyph that isn't a roundabout — slight-turn is the clean
+        // read for a lane bear (11/12/21 all draw a roundabout circle, wrong for a fork/keep).
+        KEEP_LEFT -> 4         // slight left
+        KEEP_RIGHT -> 5        // slight right
         UTURN -> 8             // curved-sharp-left, past-90 (u-turn)
         // Highway maneuvers — old targets (47/45/46/43/31) were all in the 27–48 dead zone
-        // and blanked the arrow. Remapped into rendering glyphs:
-        MERGE -> 20            // heavy straight arrow (merge / continue onto motorway)
-        FORK_LEFT -> 12        // S-curve ending left (bear left at fork)
-        FORK_RIGHT -> 11       // S-curve ending right (bear right at fork)
-        OFF_RAMP -> 21         // long S-curve right into distance (reads as an exit ramp)
-        ROUNDABOUT -> 26       // roundabout (lollipop); exit-number variants don't render here
-        ARRIVE -> 10           // arrive / destination glyph (was 21, which is the ramp glyph)
+        // and blanked the arrow (photo-verified on the bike, 2026-09-02). Remapped to glyphs
+        // this firmware actually draws:
+        MERGE -> 20            // heavy straight arrow (merge / continue onto motorway) — verified
+        FORK_LEFT -> 4         // slight left (bear left at fork)
+        FORK_RIGHT -> 5        // slight right (bear right at fork)
+        OFF_RAMP -> 5          // slight right (exit ramps bear right)
+        ROUNDABOUT -> 12       // roundabout glyph (enter/exit) — verified rendering (26 is BLANK)
+        ARRIVE -> 10           // destination-pin glyph — verified (old 21 is a roundabout, not arrive)
         CONTINUE, UNKNOWN -> 9 // straight — the never-blank fallback
     }
 }
