@@ -209,6 +209,21 @@ class DashService : Service() {
     private var wedgeLastReqMs = 0L
     @Volatile private var lastWedgeRelinkMs = 0L
 
+    // A dropped multi-frame fragment during the FRESH handshake leaves the dash blank and unable
+    // to self-heal: it asks ONCE to resend the lost fragment (msg_id=10 item=7/9), we can't
+    // cheaply re-feed it, then it idles — soliciting the clock forever while never activating the
+    // widgets. That's the "app says connected but the dash shows nothing" hang the user otherwise
+    // clears by quitting + restarting the app. The wedge detector doesn't catch it (that needs a
+    // 12s PERSISTENT stream of resend requests; a lost handshake fragment is a single one). So
+    // inside the activation window right after connect, a single resend request forces an immediate
+    // clean relink (fresh GATT, seq→0, re-handshake) — automating the restart. connectedAtMs is
+    // (re)set at the top of runHandshake; a dedicated short cooldown lets it retry a lossy link.
+    @Volatile private var connectedAtMs = 0L
+    @Volatile private var lastActivationRelinkMs = 0L
+
+    private fun withinActivationWindow() =
+        connectedAtMs != 0L && SystemClock.elapsedRealtime() - connectedAtMs < ACTIVATION_WINDOW_MS
+
     private fun updateNotification(state: DashState) {
         if (quitting) return
         val (title, text) = when (state.phase) {
@@ -595,6 +610,8 @@ class DashService : Service() {
      * parse it yet; future work to gate on the actual inbound msg_id=10 item=6).
      */
     private suspend fun runHandshake() {
+        // Start (or restart, on a relink) the activation window — see connectedAtMs.
+        connectedAtMs = SystemClock.elapsedRealtime()
         Log.i(TAG, "handshake: msg_id 13 requestVersionCode")
         ble.sendJson(DashMessages.requestVersionCode())
         delay(2000)
@@ -1122,8 +1139,22 @@ class DashService : Service() {
                 }
                 6 -> Log.i(TAG, "dash → firmware version frame (item=6): $json") // dump for `cv` branch selector
                 7, 9 -> {
-                    Log.w(TAG, "dash → resend request (item=$item): $json — not answered (quiet link); checking for wedge")
-                    maybeRelinkOnWedge()
+                    if (withinActivationWindow()) {
+                        // Lost fragment during the fresh handshake → the dash won't come up and
+                        // won't self-heal. Relink now (fresh GATT re-handshake) instead of waiting
+                        // out the slow wedge-persistence path — this is the auto-restart.
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastActivationRelinkMs >= ACTIVATION_RELINK_COOLDOWN_MS) {
+                            lastActivationRelinkMs = now
+                            Log.w(TAG, "dash → resend request (item=$item) in activation window — lost handshake fragment; forcing clean relink")
+                            ble.forceRelink()
+                        } else {
+                            Log.w(TAG, "dash → resend request (item=$item) in activation window but relink on cooldown ($json)")
+                        }
+                    } else {
+                        Log.w(TAG, "dash → resend request (item=$item): $json — not answered (quiet link); checking for wedge")
+                        maybeRelinkOnWedge()
+                    }
                 }
                 else -> Log.d(TAG, "dash → msg_id=10 item=$item: $json")
             }
@@ -1514,6 +1545,11 @@ class DashService : Service() {
         private const val WEDGE_PERSIST_MS = 12_000L     // continuous resend requests this long = wedged
         private const val WEDGE_STREAK_GAP_MS = 20_000L  // no request for this long → fresh streak
         private const val WEDGE_RELINK_COOLDOWN_MS = 30_000L
+        // Activation window: right after (re)connect, a single dash resend request means a lost
+        // handshake fragment → the dash never activates and won't self-heal, so relink at once
+        // rather than waiting out WEDGE_PERSIST_MS. Short cooldown so a lossy link can retry.
+        private const val ACTIVATION_WINDOW_MS = 20_000L
+        private const val ACTIVATION_RELINK_COOLDOWN_MS = 10_000L
         const val BATTERY_WARN_THRESHOLD = 20
         const val BATTERY_ABORT_THRESHOLD = 10
         // Which dash-button control_info cycles the map view. 4 = "lap" per the RE docs —
