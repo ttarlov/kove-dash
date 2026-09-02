@@ -814,13 +814,20 @@ class DashService : Service() {
         // altitude (which the dash DOES convert to feet from the imperial setting), the nav
         // distance field has no unit control in firmware — it's metric-only (confirmed: the dash
         // uses the legacy msg_id=1 frame, which carries no unittype; the OEM shows km here too).
-        // So for imperial locales we scale the DESTINATION distance to miles ourselves: the dash
-        // then shows "N.N km" where the number is really MILES (the label lies; the number is
-        // right). Turn distance (cur) stays metric for now — small values don't scale cleanly.
+        // So for imperial locales we scale the distances ourselves so the (lying) label reads
+        // right at a glance. DESTINATION distance → MILES: the dash shows "N.N km" where the
+        // number is really miles (destinations are usually >1 mi, so the scaled value clears
+        // the dash's 1000 threshold and renders as "N.N km"). TURN distance (cur) → FEET: the
+        // next-turn readout is almost always the imminent, sub-1000-ft case, where the dash
+        // renders "N m" and the number is the feet count (e.g. 500 ft → "500 m"). Past ~1000 ft
+        // the dash flips to a "km"-labelled thousands-of-feet value — acceptable, since that far
+        // out the exact turn distance barely matters. Both labels lie; both numbers are right.
         // -1 sentinels (Maps hadn't populated yet) clamp to 0 so we never send garbage.
-        val cur = curMeters.coerceAtLeast(0)
+        val imperial = usesImperialUnits()
+        val curReal = curMeters.coerceAtLeast(0)            // true meters to the next turn
+        val cur = if (imperial) (curReal * METERS_TO_FEET + 0.5).toInt() else curReal
         val pathReal = pathMeters.coerceAtLeast(0)          // true meters to destination
-        val path = if (usesImperialUnits()) (pathReal * METERS_TO_MILES + 0.5).toInt() else pathReal
+        val path = if (imperial) (pathReal * METERS_TO_MILES + 0.5).toInt() else pathReal
         val remain = remainSec.coerceAtLeast(0)             // trip seconds remaining
         val rate = retainRate.coerceIn(0, 100)              // % of route travelled (0 if unknown)
         // Modern remain_time is a wall-clock arrival epoch (dash shows ETA); legacy remain_time
@@ -1508,6 +1515,9 @@ class DashService : Service() {
         // displays sentValue/1000 as "km", and miles = meters/1609.344, so sentValue =
         // meters * (1000/1609.344) = meters * 0.621371 makes "N.N km" read as N.N miles.
         private const val METERS_TO_MILES = 0.621371
+        // Scale real meters to FEET for the turn-distance readout: below 1000 the dash renders
+        // "N m", so the number reads as the feet count (500 ft → "500 m"). 1 m = 3.28084 ft.
+        private const val METERS_TO_FEET = 3.28084
         // Wedge detection (reconnect-on-wedge). Relink when dash resend requests have been
         // arriving continuously for this long (a quiet gap resets the streak). Tuned so a
         // transient loss the dash self-recovers stays under the bar; adjust against ride logs.
