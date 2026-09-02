@@ -1,6 +1,7 @@
 package com.kovedash.app.navshare
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TextManeuverClassifierTest {
@@ -50,7 +51,22 @@ class TextManeuverClassifierTest {
         assertEquals(8, Maneuver.UTURN.dashIcon())
         assertEquals(9, Maneuver.UNKNOWN.dashIcon())
         assertEquals(9, Maneuver.CONTINUE.dashIcon())
-        assertEquals(21, Maneuver.ARRIVE.dashIcon())
-        assertEquals(31, Maneuver.ROUNDABOUT.dashIcon())
+        assertEquals(10, Maneuver.ARRIVE.dashIcon())
+        assertEquals(26, Maneuver.ROUNDABOUT.dashIcon())
+    }
+
+    /**
+     * Guard the on-ramp-blanking fix: every maneuver must map to a glyph THIS firmware
+     * actually renders (1–26, excluding the blank slots 17/18/19/25). If any dashIcon()
+     * arm regresses into the 27–48 dead zone, the dash draws no arrow.
+     */
+    @Test
+    fun every_maneuver_maps_to_a_rendering_glyph() {
+        val blanks = setOf(17, 18, 19, 25)
+        for (m in Maneuver.values()) {
+            val code = m.dashIcon()
+            assertTrue("$m → $code must be in 1..26", code in 1..26)
+            assertTrue("$m → $code must not be a blank slot", code !in blanks)
+        }
     }
 }
