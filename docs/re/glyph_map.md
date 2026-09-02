@@ -31,9 +31,20 @@ Road name on dash = `IC-N` so the code is visible. Distance = 500m.
 | 24   | gentle S-curve left  |       |
 | 25   | BLANK (no glyph)     | **empty** — backlog's "dedicated on-ramp 25" guess DISPROVEN |
 | 26   | roundabout (lollipop, exit down-right) | verify vs stray "empty" next session |
-| 27-48 | NOT YET PROBED      | resume here next session |
+| 27   | BLANK (no glyph)     | empty slot |
+| 28   | BLANK (no glyph)     | empty slot |
+| 29   | BLANK (no glyph)     | empty slot |
+| 30   | BLANK (no glyph)     | empty slot |
+| 31   | BLANK (no glyph)     | empty slot |
+| 32   | BLANK (no glyph)     | empty slot |
+| 33   | BLANK (no glyph)     | empty slot |
+| 34-48 | BLANK (no glyph)     | all empty — swept 5s each, none drew |
 
-## Summary so far (codes 1–26)
+## COMPLETE — full 1–48 sweep done (2026-09-02)
+
+**Renderable glyph set is codes 1–26 only. Everything 27–48 is empty.**
+
+## Summary (codes 1–26)
 
 **Maneuver glyphs that render:**
 - 1 left · 2 left · 3 right · 4 slight-left · 5 slight-right · 6 sharp-left · 7 sharp-right
@@ -43,7 +54,7 @@ Road name on dash = `IC-N` so the code is visible. Distance = 500m.
 
 **Non-maneuver / POI glyphs:** 10 arrive · 13 rest-stop · 14 toll(?) · 15 finish-flag · 16 tunnel
 
-**BLANK (empty slots — anything mapped here shows NO arrow):** 17, 18, 19, 25
+**BLANK (empty slots — anything mapped here shows NO arrow):** 17, 18, 19, 25, **27–48 (all)**
 
 ## Key takeaways for the on-ramp fix
 - The "dedicated on-ramp = 25" guess is **DISPROVEN** (25 is blank).
@@ -51,10 +62,19 @@ Road name on dash = `IC-N` so the code is visible. Distance = 500m.
 - **Best render-safe fallbacks for merge/on-ramp maneuvers:** 20 (heavy straight),
   21 (long merge-right), or plain 9 (straight). Pick per turn direction.
 
-## Next steps
-1. Resume probe at code 27 → 48 (same harness: `glyph_probe.sh 27 48 0` single-steps, or one-at-a-time).
-2. Re-verify code 26 (roundabout vs blank).
-3. Build the legacy classifier: map Google-Maps maneuvers → these legacy codes
-   (in navshare/Maneuver.kt / dashIcon), with on-ramp/merge → 20/21/9 fallback so an arrow ALWAYS shows.
+## Next steps (probe COMPLETE)
+1. Re-verify code 26 (roundabout vs the one stray "empty" report) — minor.
+2. Cross-ref codes 1–26 against the decompiled semantic enum in `docs/re/nav_widget_thinkerride.md`
+   to confirm intended meanings (esp. 8/22 curved-sharp = u-turn?, 20 heavy-straight, 21 merge).
+3. **Build the legacy classifier** (navshare/Maneuver.kt / dashIcon → legacy codes):
+   - Map every Google-Maps maneuver type to a rendering code in 1–26.
+   - CRITICAL: on-ramp / merge / fork maneuvers currently emit modern codes in the 27–48
+     dead zone → blank. Remap them into the renderable set:
+       * merge/continue-onto-highway → 20 (heavy straight) or 9 (straight)
+       * take-ramp-right / keep-right → 21 (long merge-right) or 5 (slight right) or 11 (S-right)
+       * take-ramp-left / keep-left → 24 (gentle S-left) or 4 (slight left) or 12 (S-left)
+       * roundabout → 26
+       * u-turn → 8 or 22 (curved past-90) — confirm direction
+   - Add a NEVER-BLANK fallback: any unmapped/unknown maneuver → 9 (straight) so an arrow always shows.
 4. Ride-verify the on-ramp case that started this.
 
