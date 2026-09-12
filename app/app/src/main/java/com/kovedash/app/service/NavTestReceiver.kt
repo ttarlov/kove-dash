@@ -37,6 +37,19 @@ class NavTestReceiver : BroadcastReceiver() {
             DashService.testAlt(context, altM)
             return
         }
+        // Notification probe: `--es notify mms|app [--es title Kate --es body Call_me_back
+        //   --es pkg com.foo --es app Messages]`. mms → msg_id=6 text frame (default); app →
+        //   msg_id=2 app-notify (no icon). Underscores in title/body/app become spaces.
+        val notifyKind = intent.getStringExtra("notify")
+        if (notifyKind != null) {
+            val title = (intent.getStringExtra("title") ?: "Kate").replace('_', ' ')
+            val body = (intent.getStringExtra("body") ?: "call me when you land").replace('_', ' ')
+            val pkg = intent.getStringExtra("pkg") ?: "com.google.android.apps.messaging"
+            val app = (intent.getStringExtra("app") ?: "Messages").replace('_', ' ')
+            Log.i("KoveDash", "NavTestReceiver: firing notify kind=$notifyKind title='$title' body='$body'")
+            DashService.testNotify(context, notifyKind, title, body, pkg, app)
+            return
+        }
         // Ride simulation: `--ez ride true [--el tickMs 1500] [--ei stepM 60]`
         if (intent.getBooleanExtra("ride", false)) {
             val tickMs = intent.getLongExtra("tickMs", 1500L)
