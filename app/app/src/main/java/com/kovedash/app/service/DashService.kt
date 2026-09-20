@@ -815,17 +815,17 @@ class DashService : Service() {
         // distance field has no unit control in firmware — it's metric-only (confirmed: the dash
         // uses the legacy msg_id=1 frame, which carries no unittype; the OEM shows km here too).
         // So for imperial locales we scale the distances ourselves so the (lying) label reads
-        // right at a glance. DESTINATION distance → MILES: the dash shows "N.N km" where the
-        // number is really miles (destinations are usually >1 mi, so the scaled value clears
-        // the dash's 1000 threshold and renders as "N.N km"). TURN distance (cur) → FEET: the
-        // next-turn readout is almost always the imminent, sub-1000-ft case, where the dash
-        // renders "N m" and the number is the feet count (e.g. 500 ft → "500 m"). Past ~1000 ft
-        // the dash flips to a "km"-labelled thousands-of-feet value — acceptable, since that far
-        // out the exact turn distance barely matters. Both labels lie; both numbers are right.
-        // -1 sentinels (Maps hadn't populated yet) clamp to 0 so we never send garbage.
+        // right at a glance. The dash formats a raw int as "N m" when <1000, else "N.N km"
+        // (raw/1000). DESTINATION distance → MILES: destinations are >1 mi, so miles-scale
+        // clears 1000 and renders "N.N km" where the number is really miles. TURN distance (cur)
+        // → FEET while close, MILES once far: feet reads as "N m" only until it overflows 1000
+        // (~1000 ft); past that the dash mislabels feet/1000 as "km" (a 4.5-mi turn was showing
+        // "23.7 km" = 23,764 ft / 1000). So [imperialTurnRaw] switches to the miles scale above
+        // that boundary, matching the destination hack — the far turn then reads "4.5 km" = 4.5
+        // mi. Both labels lie; both numbers are right. -1 sentinels clamp to 0.
         val imperial = usesImperialUnits()
         val curReal = curMeters.coerceAtLeast(0)            // true meters to the next turn
-        val cur = if (imperial) (curReal * METERS_TO_FEET + 0.5).toInt() else curReal
+        val cur = if (imperial) imperialTurnRaw(curReal) else curReal
         val pathReal = pathMeters.coerceAtLeast(0)          // true meters to destination
         val path = if (imperial) (pathReal * METERS_TO_MILES + 0.5).toInt() else pathReal
         val remain = remainSec.coerceAtLeast(0)             // trip seconds remaining
@@ -1518,6 +1518,21 @@ class DashService : Service() {
         // Scale real meters to FEET for the turn-distance readout: below 1000 the dash renders
         // "N m", so the number reads as the feet count (500 ft → "500 m"). 1 m = 3.28084 ft.
         private const val METERS_TO_FEET = 3.28084
+
+        /**
+         * Imperial turn-distance raw value for the dash's fixed formatter ("raw<1000 → 'N m';
+         * else 'N.N km'"). FEET while that renders as a clean "N m" (feet stays under 1000, i.e.
+         * the turn is within ~1000 ft); MILES once feet would overflow 1000 and be mislabeled
+         * "km" (a 4.5-mi turn scaled to 23,764 ft rendered as "23.7 km"). The miles branch then
+         * reads "N.N km" = miles for turns ≥1 mi, mirroring the destination hack. The 0.19–1.0 mi
+         * band (raw < 1000 on the miles scale) shows a small "N m" value — imperfect but bounded,
+         * and never the wild feet-overflow. Both labels lie; both numbers read right.
+         */
+        fun imperialTurnRaw(meters: Int): Int {
+            val m = meters.coerceAtLeast(0)
+            return if (m * METERS_TO_FEET < 1000.0) (m * METERS_TO_FEET + 0.5).toInt()
+                   else (m * METERS_TO_MILES + 0.5).toInt()
+        }
         // Wedge detection (reconnect-on-wedge). Relink when dash resend requests have been
         // arriving continuously for this long (a quiet gap resets the streak). Tuned so a
         // transient loss the dash self-recovers stays under the bar; adjust against ride logs.
