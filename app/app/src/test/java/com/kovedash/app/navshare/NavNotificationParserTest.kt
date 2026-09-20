@@ -65,6 +65,29 @@ class NavNotificationParserTest {
     }
 
     @Test
+    fun road_extraction() {
+        // Classic single-field instruction — connector strip, unchanged behavior.
+        assertEquals("Pearl St", NavNotificationParser.abbreviateRoad(
+            NavNotificationParser.extractRoad("Turn left onto Pearl St")))
+        assertEquals("US-36", NavNotificationParser.extractRoad("Slight right to stay on US-36"))
+        assertEquals("Oak Pl", NavNotificationParser.extractRoad("Head southeast on Oak Pl"))
+        // No connector → keep the whole thing (e.g. arrival).
+        assertEquals("Arrive at your destination",
+            NavNotificationParser.extractRoad("Arrive at your destination"))
+
+        // Modern ProgressStyle packs "<dist> · <maneuver> onto <road>" into one field — the
+        // "23.7 km / 4.5 mi · Slight …" bug: the distance prefix must be stripped, not shown.
+        assertEquals("US-36", NavNotificationParser.extractRoad("4.5 mi · Slight right onto US-36"))
+        assertEquals("Pearl St", NavNotificationParser.extractRoad("500 ft · Turn left onto Pearl St"))
+        // Distance + maneuver + ETA all packed in — keep only the road.
+        assertEquals("I-70 W", NavNotificationParser.extractRoad("2.1 mi · Merge onto I-70 W · 11:55 ETA"))
+        // instructionCore drops the distance/time noise but never blanks out.
+        assertEquals("Slight right onto US-36",
+            NavNotificationParser.instructionCore("4.5 mi · Slight right onto US-36"))
+        assertEquals("Continue straight", NavNotificationParser.instructionCore("Continue straight"))
+    }
+
+    @Test
     fun subtext_remaining_time() {
         assertEquals(13 * 60, NavNotificationParser.parseRemainingSeconds("13 min · 4.6 mi · 11:55 ETA"))
         assertEquals((60 + 5) * 60, NavNotificationParser.parseRemainingSeconds("1 hr 5 min · 62 mi"))

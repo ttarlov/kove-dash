@@ -28,14 +28,42 @@ object NavNotificationParser {
     // connector (e.g. "Arrive at your destination"), keep the whole thing.
     private val ROAD_CONNECTORS = listOf(" onto ", " to stay on ", " on ", " toward ", " towards ")
 
-    private fun extractRoad(instruction: String): String {
+    // A "·"-separated segment that is a bare distance ("4.5 mi") or a time/ETA token ("13 min",
+    // "11:55 ETA") — the noise modern Maps packs alongside the instruction.
+    private val TIME_TOKEN_RE = Regex("""^\d+\s*(?:h(?:r|rs|our|ours)?|min)\b.*""", RegexOption.IGNORE_CASE)
+    private val ETA_TOKEN_RE = Regex("""\bETA\b""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Modern Maps ProgressStyle packs the whole line into one field, "·"-separated:
+     * "4.5 mi · Slight right onto US-36" (and sometimes a time/ETA segment). Keep only the
+     * segment(s) that are neither a bare distance nor a time/ETA token, so what's left is just
+     * the "<maneuver> <connector> <road>" the connector strip expects. Classic instructions
+     * (no "·") pass through untouched. Never returns blank — falls back to the raw string.
+     */
+    fun instructionCore(raw: String): String {
+        val s = raw.trim()
+        if (!s.contains('·')) return s
+        return s.split('·')
+            .map { it.trim() }
+            .filter { seg ->
+                seg.isNotEmpty() &&
+                    DISTANCE_RE.matchEntire(seg) == null &&
+                    !TIME_TOKEN_RE.matches(seg) &&
+                    !ETA_TOKEN_RE.containsMatchIn(seg)
+            }
+            .joinToString(" ")
+            .ifBlank { s }
+    }
+
+    fun extractRoad(instruction: String): String {
+        val core = instructionCore(instruction)
         var bestIdx = -1
-        var road = instruction
+        var road = core
         for (c in ROAD_CONNECTORS) {
-            val idx = instruction.lastIndexOf(c, ignoreCase = true)
+            val idx = core.lastIndexOf(c, ignoreCase = true)
             if (idx > bestIdx) {
                 bestIdx = idx
-                road = instruction.substring(idx + c.length)
+                road = core.substring(idx + c.length)
             }
         }
         return road.trim()
