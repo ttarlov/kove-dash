@@ -89,6 +89,52 @@ class MainActivity : ComponentActivity() {
         // launch so all that's left is holding UP on the dash. First-run users hit the
         // permission dialog, and maybeAutoConnect() runs again from its result callback.
         maybeAutoConnect()
+        // If an NFC tap cold-launched us, kick a connect too. Safe after maybeAutoConnect:
+        // that already flipped the phase off IDLE if it connected, so the phase guard below
+        // prevents a double-connect.
+        handleNfcConnect(intent)
+    }
+
+    // A warm NFC tap (app alive but idle / gave up reconnecting) lands here, not onCreate.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNfcConnect(intent)
+    }
+
+    /**
+     * NFC tap-to-connect. A tag written with the URI kovedash://connect launches us with an
+     * NDEF_DISCOVERED intent; this kicks a connect — but only from a not-connected, not-trying
+     * state (IDLE = fresh or gave-up, ERROR = failed), which is exactly the "the app died or
+     * timed out after a long ignition cycle" case the tag is for. Already up or mid-attempt →
+     * no-op. Needs the runtime perms a returning user already has; otherwise re-prompts.
+     */
+    private fun handleNfcConnect(intent: Intent?) {
+        val isNfc = intent?.action == android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED ||
+            intent?.data?.scheme == NFC_SCHEME
+        if (!isNfc) return
+        val phase = AppHost.state.value.phase
+        if (phase != ConnectionPhase.IDLE && phase != ConnectionPhase.ERROR) {
+            android.util.Log.i("KoveDash", "NFC tap ignored — phase=$phase (already up/connecting)")
+            return
+        }
+        val need = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val granted = need.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (granted) {
+            android.util.Log.i("KoveDash", "NFC tap → connect (phase was $phase)")
+            AppHost.connect()
+        } else {
+            android.util.Log.i("KoveDash", "NFC tap → perms missing, requesting then auto-connect")
+            requestRuntimePermissions()
+        }
     }
 
     private fun maybeAutoConnect() {
@@ -132,6 +178,11 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (need.isNotEmpty()) permissionLauncher.launch(need.toTypedArray())
+    }
+
+    private companion object {
+        // Scheme of the NFC tag URI (kovedash://connect) that triggers tap-to-connect.
+        const val NFC_SCHEME = "kovedash"
     }
 }
 

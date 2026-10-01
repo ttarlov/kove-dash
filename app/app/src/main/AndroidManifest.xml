@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- NFC: a tap on a tag written with kovedash://connect cold-launches the app + connects. -->
+    <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -49,6 +51,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- NFC tap-to-connect: a tag written with the URI kovedash://connect fires
+                 NDEF_DISCOVERED, which cold-launches this activity (even from a dead process)
+                 OR delivers to onNewIntent if it's already running. The handler then kicks a
+                 connect. The custom scheme means only this app matches — no app chooser. -->
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="kovedash" android:host="connect" />
             </intent-filter>
         </activity>
 
