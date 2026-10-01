@@ -5,10 +5,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Guards the turn-distance imperial scaling against the "23.7 km" regression: a far turn
- * (4.5 mi) was being scaled to feet (23,764), which the dash renders as "23.7 km" (feet/1000)
- * instead of a readable distance. [DashService.imperialTurnRaw] must switch to the miles scale
- * before feet overflows the dash's 1000 "N m" → "N.N km" boundary.
+ * Guards the turn-distance imperial scaling. It is MILES-ONLY: the old feet↔miles switch made
+ * "600 m" mean both 0.6 mi (far) and 600 ft (close), with a jump at the boundary. Miles-only is
+ * monotonic and collision-free — far turns read right ("4.5 km" = 4.5 mi), close turns are a
+ * distinct small value, and the number never repeats for two different distances.
  */
 class ImperialTurnDistanceTest {
 
@@ -17,33 +17,33 @@ class ImperialTurnDistanceTest {
         if (raw < 1000) "$raw m" else String.format(java.util.Locale.US, "%.1f km", raw / 1000.0)
 
     @Test
-    fun close_turn_stays_in_clean_feet() {
-        // 500 ft ≈ 152 m → ~500, rendered "500 m" (number = feet).
-        val raw = DashService.imperialTurnRaw(152)
-        assertEquals(499, raw)
-        assertTrue("close turn must render as 'N m' feet, got ${dashReads(raw)}", raw < 1000)
+    fun far_turn_reads_as_miles() {
+        // 4.5 mi ≈ 7242 m → ~4500 → "4.5 km" = 4.5 mi (not the old feet-overflow "23.7 km").
+        assertEquals("4.5 km", dashReads(DashService.imperialTurnRaw(7242)))
+        // 1.0 mi ≈ 1609 m → ~1000 → "1.0 km".
+        assertEquals("1.0 km", dashReads(DashService.imperialTurnRaw(1609)))
     }
 
     @Test
-    fun far_turn_switches_to_miles_not_feet_overflow() {
-        // 4.5 mi ≈ 7242 m. Old feet scale → 23,764 → "23.7 km" (garbage).
-        // New: miles scale → ~4500 → "4.5 km" = 4.5 mi.
-        val raw = DashService.imperialTurnRaw(7242)
-        assertEquals("4.5 km", dashReads(raw))
-        // Sanity: the feet scale would have produced the broken value.
-        assertTrue("feet scale would overflow", (7242 * 3.28084) > 20000)
+    fun no_feet_miles_collision() {
+        // The reported bug: 0.6 mi and 600 ft both rendered "600 m". Miles-only separates them.
+        val sixTenthsMile = DashService.imperialTurnRaw(966)   // 0.6 mi
+        val sixHundredFeet = DashService.imperialTurnRaw(183)  // 600 ft
+        assertEquals(600, sixTenthsMile)                        // 0.6 mi → "600 m"
+        assertTrue("600 ft must NOT also be 600", sixHundredFeet != 600)
+        assertEquals(114, sixHundredFeet)                       // 600 ft → "114 m", distinct
     }
 
     @Test
-    fun boundary_never_produces_feet_over_1000() {
-        // Sweep meters across the switch; a value on the feet branch must stay under 1000
-        // (clean "N m"), so we never emit the mislabeled feet/1000 "km".
-        for (m in 0..400) {
-            val feetRaw = m * 3.28084
+    fun monotonic_down_to_the_turn() {
+        // Approaching a turn (distance shrinking), the raw value must never increase — no jump.
+        var prev = Int.MAX_VALUE
+        var m = 8000
+        while (m >= 0) {
             val raw = DashService.imperialTurnRaw(m)
-            if (feetRaw < 1000.0) {
-                assertTrue("m=$m used feet but raw=$raw >= 1000", raw < 1000)
-            }
+            assertTrue("non-monotonic at m=$m: $raw > $prev", raw <= prev)
+            prev = raw
+            m -= 25
         }
     }
 }
