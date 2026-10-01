@@ -1556,24 +1556,20 @@ class DashService : Service() {
         // displays sentValue/1000 as "km", and miles = meters/1609.344, so sentValue =
         // meters * (1000/1609.344) = meters * 0.621371 makes "N.N km" read as N.N miles.
         private const val METERS_TO_MILES = 0.621371
-        // Scale real meters to FEET for the turn-distance readout: below 1000 the dash renders
-        // "N m", so the number reads as the feet count (500 ft → "500 m"). 1 m = 3.28084 ft.
-        private const val METERS_TO_FEET = 3.28084
 
         /**
-         * Imperial turn-distance raw value for the dash's fixed formatter ("raw<1000 → 'N m';
-         * else 'N.N km'"). FEET while that renders as a clean "N m" (feet stays under 1000, i.e.
-         * the turn is within ~1000 ft); MILES once feet would overflow 1000 and be mislabeled
-         * "km" (a 4.5-mi turn scaled to 23,764 ft rendered as "23.7 km"). The miles branch then
-         * reads "N.N km" = miles for turns ≥1 mi, mirroring the destination hack. The 0.19–1.0 mi
-         * band (raw < 1000 on the miles scale) shows a small "N m" value — imperfect but bounded,
-         * and never the wild feet-overflow. Both labels lie; both numbers read right.
+         * Imperial turn-distance raw value — MILES-ONLY (same scale as the destination field).
+         * The dash's fixed formatter ("raw<1000 → 'N m'; else 'N.N km'") can't print a decimal
+         * below raw 1000, so a sub-mile turn (0.6 mi → raw 600) shows "600 m", not "0.6 km" —
+         * that's firmware, unfixable. We used to switch feet↔miles by distance, but feet and
+         * miles both land in the "N m" range, so the SAME number meant two things: "600 m" was
+         * 0.6 mi when far and 600 ft when close, with a jump at the switch. Miles-only makes the
+         * readout monotonic and collision-free: far turns read right ("4.5 km" = 4.5 mi), and a
+         * close turn is a distinct small value (600 ft → "114 m"), never a repeat. The label
+         * lies ("km"/"m"); the number is the miles value.
          */
-        fun imperialTurnRaw(meters: Int): Int {
-            val m = meters.coerceAtLeast(0)
-            return if (m * METERS_TO_FEET < 1000.0) (m * METERS_TO_FEET + 0.5).toInt()
-                   else (m * METERS_TO_MILES + 0.5).toInt()
-        }
+        fun imperialTurnRaw(meters: Int): Int =
+            (meters.coerceAtLeast(0) * METERS_TO_MILES + 0.5).toInt()
         // Wedge detection (reconnect-on-wedge). Relink when dash resend requests have been
         // arriving continuously for this long (a quiet gap resets the streak). Tuned so a
         // transient loss the dash self-recovers stays under the bar; adjust against ride logs.
