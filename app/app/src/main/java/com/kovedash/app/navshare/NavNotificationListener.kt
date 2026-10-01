@@ -23,8 +23,36 @@ class NavNotificationListener : NotificationListenerService() {
     @Volatile
     private var activeNavKey: String? = null
 
+    // Lazily-built settings reader for the notification-forward allow-list + enable flag. The
+    // listener runs in its own process context; SharedPreferences reads are cheap.
+    private val settings: com.kovedash.app.service.KoveSettings by lazy {
+        com.kovedash.app.service.KoveSettings(applicationContext)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName != MAPS_PKG) return
+        if (sbn.packageName == MAPS_PKG) handleMapsNav(sbn) else handleAppNotification(sbn)
+    }
+
+    /** Non-Maps notification → forward to the dash as a msg_id=6 banner, if enabled + allow-listed. */
+    private fun handleAppNotification(sbn: StatusBarNotification) {
+        if (!settings.notificationsEnabled) return
+        if (sbn.packageName !in settings.notifyApps) return
+        val n = sbn.notification ?: return
+        // Skip the noise: persistent/ongoing (foreground services, media transport) and
+        // group-summary rollups — we want the real per-message content pings.
+        val f = n.flags
+        if (f and android.app.Notification.FLAG_ONGOING_EVENT != 0) return
+        if (f and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
+        val title = n.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+        val text = n.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+        val appLabel = runCatching {
+            val pm = applicationContext.packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString()
+        }.getOrDefault(sbn.packageName)
+        NotificationForwarder.onNotification(applicationContext, sbn.packageName, appLabel, title, text)
+    }
+
+    private fun handleMapsNav(sbn: StatusBarNotification) {
         val n = sbn.notification
         val ongoing = n != null && (n.flags and android.app.Notification.FLAG_ONGOING_EVENT) != 0
         val localOnly = n != null && (n.flags and android.app.Notification.FLAG_LOCAL_ONLY) != 0

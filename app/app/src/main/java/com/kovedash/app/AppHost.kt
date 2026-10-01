@@ -51,7 +51,11 @@ object AppHost {
     fun attach(context: Context) {
         appContext = context.applicationContext
         settings = KoveSettings(context.applicationContext).also { s ->
-            _state.update { it.copy(savedDashPassword = s.dashPassword, savedSsidPrefix = s.dashSsidPrefix) }
+            _state.update { it.copy(
+                savedDashPassword = s.dashPassword,
+                savedSsidPrefix = s.dashSsidPrefix,
+                notificationsEnabled = s.notificationsEnabled,
+            ) }
         }
         gpsSource = GpsSource(context.applicationContext)
         startGpsIfPermitted()
@@ -92,6 +96,13 @@ object AppHost {
                 savedSsidPrefix = ssidPrefix,
             )
         }
+    }
+
+    /** Toggle phone-notification forwarding to the dash (msg_id=6 banners). Persisted + published
+     *  to state; the listener reads KoveSettings live on each notification. */
+    fun setNotificationsEnabled(enabled: Boolean) {
+        settings?.notificationsEnabled = enabled
+        _state.update { it.copy(notificationsEnabled = enabled) }
     }
 
     fun savePasswordAndConnect(password: String) {

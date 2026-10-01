@@ -37,6 +37,15 @@ class NavTestReceiver : BroadcastReceiver() {
             DashService.testAlt(context, altM)
             return
         }
+        // Generic raw-frame probe: fire ANY JSON at the dash on the quiet link, e.g.
+        //   --es raw '{"msg_id":3,"name":"Kate","number":"555-1234"}'   (incoming call)
+        // Lets us probe message types that have no dedicated builder. Debug-only.
+        val raw = intent.getStringExtra("raw")
+        if (raw != null) {
+            Log.i("KoveDash", "NavTestReceiver: firing raw → $raw")
+            DashService.testRaw(context, raw)
+            return
+        }
         // Notification probe: `--es notify mms|app [--es title Kate --es body Call_me_back
         //   --es pkg com.foo --es app Messages]`. mms → msg_id=6 text frame (default); app →
         //   msg_id=2 app-notify (no icon). Underscores in title/body/app become spaces.

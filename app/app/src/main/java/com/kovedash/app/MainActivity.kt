@@ -233,6 +233,8 @@ private fun App() {
                 SettingsScreen(
                     currentPassword = state.savedDashPassword,
                     currentSsidPrefix = state.savedSsidPrefix,
+                    notificationsEnabled = state.notificationsEnabled,
+                    onNotificationsToggle = AppHost::setNotificationsEnabled,
                     onSave = AppHost::saveSettings,
                     onBack = AppHost::closeSettings,
                 )

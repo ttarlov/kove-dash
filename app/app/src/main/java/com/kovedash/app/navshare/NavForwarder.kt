@@ -111,6 +111,11 @@ object NavForwarder {
         DashService.endTbt(ctx)
     }
 
+    /** Elapsed ms since the last nav forward (huge if none yet). Lets [NotificationForwarder]
+     *  hold a banner off the link until a just-sent turn card has had its reassembly window. */
+    fun msSinceLastForward(): Long =
+        if (lastForwardMs == 0L) Long.MAX_VALUE else elapsedRealtime() - lastForwardMs
+
     // SystemClock.elapsedRealtime() indirection kept trivial so the object stays unit-testable
     // and free of a hard android.os import at call sites.
     private fun elapsedRealtime(): Long = android.os.SystemClock.elapsedRealtime()

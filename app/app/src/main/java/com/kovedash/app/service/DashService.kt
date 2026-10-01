@@ -309,6 +309,13 @@ class DashService : Service() {
                     scope.launch { runCatching { ble.sendJson(DashMessages.endNavi()) } }
                 }
             }
+            ACTION_FORWARD_NOTIFY -> {
+                // Phone notification → dash msg_id=6 banner (notification-forwarding feature).
+                // NotificationForwarder already gated on enabled/allow-list/connection/dedup.
+                val title = intent.getStringExtra(EXTRA_FWD_TITLE) ?: ""
+                val body = intent.getStringExtra(EXTRA_FWD_BODY) ?: ""
+                if (title.isNotBlank() || body.isNotBlank()) scope.launch { runForwardNotify(title, body) }
+            }
             ACTION_TEST_NAV -> {
                 // Debug: fire a hardcoded REAL turn countdown, bypassing Google Maps entirely.
                 // Reproduces the fake-nav POC that rendered (icon=3 right, real road, non-zero
@@ -344,6 +351,12 @@ class DashService : Service() {
                 val pkg = intent.getStringExtra(EXTRA_NOTIFY_PKG) ?: "com.google.android.apps.messaging"
                 val app = intent.getStringExtra(EXTRA_NOTIFY_APP) ?: "Messages"
                 scope.launch { runTestNotify(kind, title, body, pkg, app) }
+            }
+            ACTION_TEST_RAW -> {
+                // Debug: fire an arbitrary JSON frame once on the quiet link — probe any msg_id
+                // (incall msg_id=3, music msg_id=27 func=MUSIC, battery 23, street 7, …).
+                val raw = intent.getStringExtra(EXTRA_RAW)
+                if (raw != null) scope.launch { runTestRaw(raw) }
             }
             ACTION_ARM_PROJECTION -> scope.launch {
                 if (wifiParked) unparkWifi() // projection needs Wi-Fi/15456 — bring it back first
@@ -806,6 +819,43 @@ class DashService : Service() {
         runCatching { ble.sendJson(json) }
             .onFailure { Log.w(TAG, "testNotify send failed", it) }
         Log.i(TAG, "testNotify: sent once — channel now quiet, watch the dash for ~60 s")
+    }
+
+    /**
+     * DEBUG ONLY. Fire an arbitrary JSON frame once on the quiet link — a generic probe for any
+     * message type without a dedicated builder (incall msg_id=3, music msg_id=27 func=MUSIC,
+     * battery 23, street 7, …). The string is sent verbatim, so it must be valid dash JSON.
+     */
+    private suspend fun runTestRaw(json: String) {
+        if (ble.connectionState.value != DashBleClient.State.CONNECTED) {
+            Log.w(TAG, "testRaw: BLE not connected — skipping")
+            return
+        }
+        Log.i(TAG, "testRaw: single-shot (quiet-link recipe) → $json")
+        runCatching { ble.sendJson(json) }
+            .onFailure { Log.w(TAG, "testRaw send failed", it) }
+        Log.i(TAG, "testRaw: sent once — watch the dash for ~60 s")
+    }
+
+    /**
+     * Notification-forwarding feature: push one phone notification to the dash as a msg_id=6
+     * banner. Single-shot (the banner is one small frame). Nav-guard: if a nav multi-frame was
+     * just sent, wait out its reassembly window before injecting this frame so we don't corrupt
+     * an in-flight turn card. Gating (enabled/allow-list/dedup/connection) happened upstream in
+     * [NotificationForwarder].
+     */
+    private suspend fun runForwardNotify(title: String, content: String) {
+        if (ble.connectionState.value != DashBleClient.State.CONNECTED) {
+            Log.w(TAG, "forwardNotify: BLE not connected — dropping")
+            return
+        }
+        val sinceNav = com.kovedash.app.navshare.NavForwarder.msSinceLastForward()
+        if (sinceNav in 0 until NOTIFY_NAV_GUARD_MS) {
+            kotlinx.coroutines.delay(NOTIFY_NAV_GUARD_MS - sinceNav)
+        }
+        Log.i(TAG, "forwardNotify: msg_id=6 banner title='$title'")
+        runCatching { ble.sendJson(DashMessages.notifyText(title, content)) }
+            .onFailure { Log.w(TAG, "forwardNotify send failed", it) }
     }
 
     /** One leg of the simulated ride: the maneuver glyph, the road you turn ONTO, and the
@@ -1551,6 +1601,12 @@ class DashService : Service() {
         const val ACTION_UNPARK_WIFI = "kovedash.UNPARK_WIFI" // bring Wi-Fi back up
         const val ACTION_FORWARD_TBT = "kovedash.FORWARD_TBT"
         const val ACTION_END_TBT = "kovedash.END_TBT"
+        const val ACTION_FORWARD_NOTIFY = "kovedash.FORWARD_NOTIFY"
+        const val EXTRA_FWD_TITLE = "kovedash.fwd.title"
+        const val EXTRA_FWD_BODY = "kovedash.fwd.body"
+        // Give a just-sent nav multi-frame this long to reassemble before injecting a
+        // notification banner frame, so we never corrupt an in-flight turn card.
+        private const val NOTIFY_NAV_GUARD_MS = 1200L
         const val ACTION_TEST_NAV = "kovedash.TEST_NAV"
         const val ACTION_SIM_RIDE = "kovedash.SIM_RIDE"
         const val EXTRA_SIM_TICK_MS = "kovedash.sim.tickMs"
@@ -1565,6 +1621,9 @@ class DashService : Service() {
         const val EXTRA_NOTIFY_BODY = "kovedash.notify.body"   // message body / notif content
         const val EXTRA_NOTIFY_PKG = "kovedash.notify.pkg"     // app-notify only: package_name
         const val EXTRA_NOTIFY_APP = "kovedash.notify.app"     // app-notify only: app_name
+        // Generic raw-frame probe (debug): fire arbitrary JSON once on the quiet link.
+        const val ACTION_TEST_RAW = "kovedash.TEST_RAW"
+        const val EXTRA_RAW = "kovedash.raw.json"
         const val EXTRA_TBT_ICON = "kovedash.tbt.icon"
         const val EXTRA_TBT_ROAD = "kovedash.tbt.road"
         const val EXTRA_TBT_CUR_M = "kovedash.tbt.curM"
@@ -1721,6 +1780,15 @@ class DashService : Service() {
             )
         }
 
+        /** Debug: fire arbitrary JSON once on the quiet link. Triggered by [NavTestReceiver]. */
+        fun testRaw(ctx: Context, json: String) {
+            ctx.startService(
+                Intent(ctx, DashService::class.java)
+                    .setAction(ACTION_TEST_RAW)
+                    .putExtra(EXTRA_RAW, json)
+            )
+        }
+
         /** Debug: play a scripted neighborhood ride. Triggered by [NavTestReceiver] from adb. */
         fun simRide(ctx: Context, tickMs: Long, stepM: Int) {
             ctx.startService(
@@ -1750,6 +1818,16 @@ class DashService : Service() {
                     .putExtra(EXTRA_TBT_PATH_M, pathMeters)
                     .putExtra(EXTRA_TBT_REMAIN_S, remainSec)
                     .putExtra(EXTRA_TBT_RETAIN_RATE, retainRate)
+            )
+        }
+
+        /** Forward one phone notification to the dash as a msg_id=6 banner (notification silo). */
+        fun forwardNotify(ctx: Context, title: String, content: String) {
+            ctx.startService(
+                Intent(ctx, DashService::class.java)
+                    .setAction(ACTION_FORWARD_NOTIFY)
+                    .putExtra(EXTRA_FWD_TITLE, title)
+                    .putExtra(EXTRA_FWD_BODY, content)
             )
         }
 

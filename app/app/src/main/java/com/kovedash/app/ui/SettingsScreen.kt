@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,6 +30,8 @@ import androidx.compose.ui.unit.sp
 fun SettingsScreen(
     currentPassword: String?,
     currentSsidPrefix: String,
+    notificationsEnabled: Boolean,
+    onNotificationsToggle: (Boolean) -> Unit,
     onSave: (password: String, ssidPrefix: String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -75,6 +78,25 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(8.dp))
+
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Forward notifications to dash", color = Color.White, fontSize = 16.sp)
+                Text(
+                    "Show allow-listed app notifications (texts, Signal, WhatsApp…) " +
+                        "as a banner on the dash. Needs Notification Access.",
+                    color = Color(0xFF8FA0B0),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            Spacer(Modifier.height(0.dp))
+            Switch(checked = notificationsEnabled, onCheckedChange = onNotificationsToggle)
+        }
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
