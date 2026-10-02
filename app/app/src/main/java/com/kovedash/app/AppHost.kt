@@ -60,6 +60,9 @@ object AppHost {
         gpsSource = GpsSource(context.applicationContext)
         startGpsIfPermitted()
         refreshNotificationAccess()
+        // Current-street line (msg_id=7) during nav — one long-lived loop; it self-gates on
+        // nav-active + connected, so running it for the app's lifetime is cheap.
+        com.kovedash.app.navshare.StreetForwarder.start(appContext!!, ioScope)
     }
 
     /** Re-check whether Notification Access is granted and publish it to state so the UI can

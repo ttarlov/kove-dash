@@ -54,6 +54,12 @@ object NavForwarder {
     private var lastDistBucket = -1
     private var lastForwardMs = 0L
 
+    // True while a Google Maps nav session is live (first forward → onEnded). Lets
+    // [StreetForwarder] push the current-street line (msg_id=7) only during navigation.
+    @Volatile
+    var navSessionActive: Boolean = false
+        private set
+
     // Largest distance-to-destination seen this nav session ≈ the total route length. The Maps
     // notification only ever reports REMAINING distance, so we infer the total from its peak
     // (captured at the start when it's biggest; bumped up if a reroute makes remaining grow).
@@ -93,6 +99,7 @@ object NavForwarder {
         lastManeuverKey = maneuverKey
         lastDistBucket = distBucket
         lastForwardMs = now
+        navSessionActive = true
         val why = if (maneuverChanged) "maneuver-change" else "distance-tick"
         Log.i(TAG, "navshare forward ($why): icon=$icon road='${update.nextRoad}' curM=$curMeters " +
             "destM=$destMeters remainS=${update.remainingTimeSec} retain%=$retainRate (${update.maneuver})")
@@ -108,6 +115,7 @@ object NavForwarder {
         lastDistBucket = -1
         lastForwardMs = 0L
         routeMaxMeters = -1
+        navSessionActive = false
         DashService.endTbt(ctx)
     }
 

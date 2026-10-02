@@ -80,6 +80,17 @@ object DashMessages {
         """{"msg_id":6,"title":"${escape(title)}","content":"${escape(content)}"}"""
 
     /**
+     * msg_id 7 — current-location line. OEM `JsonManager.sendLocation`: pushes the rider's
+     * reverse-geocoded current street to the dash's notification-area status LINE (bare text,
+     * no banner chrome). It's a PERSISTENT field — refreshed continuously while moving, held
+     * until overwritten with a DIFFERENT string; there is no clear command (see
+     * docs/re/dash_render_map.md). We drive it during nav so the empty notification area shows
+     * "the street you're on now" alongside the turn-arrow card.
+     */
+    fun location(street: String): String =
+        """{"msg_id":7,"street":"${escape(street)}"}"""
+
+    /**
      * msg_id 2 — generic app-notification push. OEM `JsonManager.sendNotification:1499`:
      * `{app_name, title, content, package_name, icon?}`. The base64-PNG `icon` is attached ONLY
      * when the device is NOT a "small system" (`DeviceFunctionManager.isSmallSystem()`); our

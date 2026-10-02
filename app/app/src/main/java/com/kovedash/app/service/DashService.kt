@@ -316,6 +316,12 @@ class DashService : Service() {
                 val body = intent.getStringExtra(EXTRA_FWD_BODY) ?: ""
                 if (title.isNotBlank() || body.isNotBlank()) scope.launch { runForwardNotify(title, body) }
             }
+            ACTION_SEND_STREET -> {
+                // Current-street line (msg_id=7) during nav. StreetForwarder already gated on
+                // nav-active/connected/moved/changed.
+                val street = intent.getStringExtra(EXTRA_STREET)
+                if (!street.isNullOrBlank()) scope.launch { runSendStreet(street) }
+            }
             ACTION_TEST_NAV -> {
                 // Debug: fire a hardcoded REAL turn countdown, bypassing Google Maps entirely.
                 // Reproduces the fake-nav POC that rendered (icon=3 right, real road, non-zero
@@ -856,6 +862,21 @@ class DashService : Service() {
         Log.i(TAG, "forwardNotify: msg_id=6 banner title='$title'")
         runCatching { ble.sendJson(DashMessages.notifyText(title, content)) }
             .onFailure { Log.w(TAG, "forwardNotify send failed", it) }
+    }
+
+    /**
+     * Current-street line (msg_id=7) during nav. Single frame; same nav-guard as the notification
+     * path so a street push doesn't land inside an in-flight turn card's reassembly window.
+     */
+    private suspend fun runSendStreet(street: String) {
+        if (ble.connectionState.value != DashBleClient.State.CONNECTED) return
+        val sinceNav = com.kovedash.app.navshare.NavForwarder.msSinceLastForward()
+        if (sinceNav in 0 until NOTIFY_NAV_GUARD_MS) {
+            kotlinx.coroutines.delay(NOTIFY_NAV_GUARD_MS - sinceNav)
+        }
+        Log.i(TAG, "sendStreet: msg_id=7 '$street'")
+        runCatching { ble.sendJson(DashMessages.location(street)) }
+            .onFailure { Log.w(TAG, "sendStreet send failed", it) }
     }
 
     /** One leg of the simulated ride: the maneuver glyph, the road you turn ONTO, and the
@@ -1604,6 +1625,8 @@ class DashService : Service() {
         const val ACTION_FORWARD_NOTIFY = "kovedash.FORWARD_NOTIFY"
         const val EXTRA_FWD_TITLE = "kovedash.fwd.title"
         const val EXTRA_FWD_BODY = "kovedash.fwd.body"
+        const val ACTION_SEND_STREET = "kovedash.SEND_STREET"
+        const val EXTRA_STREET = "kovedash.street"
         // Give a just-sent nav multi-frame this long to reassemble before injecting a
         // notification banner frame, so we never corrupt an in-flight turn card.
         private const val NOTIFY_NAV_GUARD_MS = 1200L
@@ -1828,6 +1851,15 @@ class DashService : Service() {
                     .setAction(ACTION_FORWARD_NOTIFY)
                     .putExtra(EXTRA_FWD_TITLE, title)
                     .putExtra(EXTRA_FWD_BODY, content)
+            )
+        }
+
+        /** Push the current street (msg_id=7) to the dash's location line (navigation). */
+        fun sendStreet(ctx: Context, street: String) {
+            ctx.startService(
+                Intent(ctx, DashService::class.java)
+                    .setAction(ACTION_SEND_STREET)
+                    .putExtra(EXTRA_STREET, street)
             )
         }
 
