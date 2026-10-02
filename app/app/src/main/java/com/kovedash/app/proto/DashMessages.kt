@@ -69,6 +69,48 @@ object DashMessages {
     fun endNavi(): String = """{"msg_id":15}"""
 
     /**
+     * msg_id 6 — text-message (SMS/MMS) push. OEM `JsonManager.sendMMS:1316`: a minimal
+     * `{title, content}` frame (title = sender, content = body). Tiny → 1–2 BLE frames, so
+     * it reassembles easily on a quiet link. This is the ACTUAL text frame — distinct from the
+     * icon-laden msg_id=2 app-notify frame the old "notifications dead-end" test fired by
+     * mistake. Same content-command family as msg_id=1 nav (which renders natively on a quiet
+     * link), so this is a real, never-cleanly-tried experiment.
+     */
+    fun notifyText(title: String, content: String): String =
+        """{"msg_id":6,"title":"${escape(title)}","content":"${escape(content)}"}"""
+
+    /**
+     * msg_id 7 — current-location line. OEM `JsonManager.sendLocation`: pushes the rider's
+     * reverse-geocoded current street to the dash's notification-area status LINE (bare text,
+     * no banner chrome). It's a PERSISTENT field — refreshed continuously while moving, held
+     * until overwritten with a DIFFERENT string; there is no clear command (see
+     * docs/re/dash_render_map.md). We drive it during nav so the empty notification area shows
+     * "the street you're on now" alongside the turn-arrow card.
+     */
+    fun location(street: String): String =
+        """{"msg_id":7,"street":"${escape(street)}"}"""
+
+    /**
+     * msg_id 2 — generic app-notification push. OEM `JsonManager.sendNotification:1499`:
+     * `{app_name, title, content, package_name, icon?}`. The base64-PNG `icon` is attached ONLY
+     * when the device is NOT a "small system" (`DeviceFunctionManager.isSmallSystem()`); our
+     * SV=3.0.4 is a small system, so the OEM omits it — we default to no icon (small frame,
+     * BLE-friendly). [iconB64] lets a test attach one to probe whether the heavier multi-frame
+     * variant behaves differently (it's the worst case for reassembly).
+     */
+    fun appNotify(
+        packageName: String,
+        appName: String,
+        title: String,
+        content: String,
+        iconB64: String? = null,
+    ): String {
+        val head =
+            """{"msg_id":2,"app_name":"${escape(appName)}","title":"${escape(title)}","content":"${escape(content)}","package_name":"${escape(packageName)}""""
+        return if (iconB64 != null) """$head,"icon":"${escape(iconB64)}"}""" else "$head}"
+    }
+
+    /**
      * msg_id 1 — legacy native TBT (empty-`cv` dashes, i.e. our SV=3.0.4). Full 6-field
      * shape: icon + next_road + cur_retain_distance (meters to the turn) + path_retain_distance
      * + remain_time. This spans 2–3 BLE frames; the dash reassembles it fine PROVIDED the

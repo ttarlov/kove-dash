@@ -87,6 +87,33 @@ object MapboxGeocoder {
         httpGet(url, "retrieve id='$mapboxId'", ::parseRetrieve)
     }
 
+    /**
+     * REVERSE geocode a GPS fix to the current street/road name, for the dash's msg_id=7
+     * "current location" line during navigation. Uses the v6 reverse endpoint with
+     * types=street,address so a point on a named road resolves to that road. Returns null on
+     * no-network / no-result (caller just skips the update). 1 result, English.
+     */
+    suspend fun reverse(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
+        val token = BuildConfig.MAPBOX_PUBLIC_TOKEN
+        if (token.isBlank()) return@withContext null
+        val url = URL(
+            "https://api.mapbox.com/search/geocode/v6/reverse" +
+                "?longitude=$lon&latitude=$lat&types=street,address&language=en&limit=1" +
+                "&access_token=$token"
+        )
+        httpGet(url, "reverse $lat,$lon", ::parseReverseStreet)
+    }
+
+    /** v6 reverse: prefer context.street.name (clean road name on an address hit), else name. */
+    private fun parseReverseStreet(body: String): String? {
+        val feats = org.json.JSONObject(body).optJSONArray("features") ?: return null
+        if (feats.length() == 0) return null
+        val props = feats.getJSONObject(0).optJSONObject("properties") ?: return null
+        props.optJSONObject("context")?.optJSONObject("street")
+            ?.optString("name")?.takeIf { it.isNotBlank() }?.let { return it }
+        return props.optString("name").takeIf { it.isNotBlank() }
+    }
+
     private fun <T> httpGet(url: URL, tag: String, parse: (String) -> T?): T? {
         val conn = url.openConnection() as HttpURLConnection
         return try {

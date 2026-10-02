@@ -45,4 +45,5 @@ data class DashState(
     val savedDashPassword: String? = null,
     val savedSsidPrefix: String = "CQKY_",
     val gpxCourseName: String? = null,
+    val notificationsEnabled: Boolean = false,
 )

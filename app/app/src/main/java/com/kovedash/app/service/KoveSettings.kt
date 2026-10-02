@@ -34,12 +34,37 @@ class KoveSettings(context: Context) {
         get() = prefs.getString(KEY_DASH_MAC, null)
         set(value) = prefs.edit().putString(KEY_DASH_MAC, value).apply()
 
+    // Forward phone notifications (texts etc.) to the dash as msg_id=6 banners. Opt-in (off by
+    // default) — it needs Notification Access, and a rider should choose to see pings mid-ride.
+    var notificationsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_NOTIF_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_NOTIF_ENABLED, value).apply()
+
+    // Package allow-list: only these apps' notifications are forwarded (an empty-set guard would
+    // flood the dash with every ping). Seeded with common messaging apps; getStringSet returns a
+    // copy so we never mutate the stored set in place.
+    var notifyApps: Set<String>
+        get() = prefs.getStringSet(KEY_NOTIF_APPS, null)?.toSet() ?: DEFAULT_NOTIFY_APPS
+        set(value) = prefs.edit().putStringSet(KEY_NOTIF_APPS, value).apply()
+
     companion object {
         private const val NAME = "kovedash.settings"
         private const val KEY_DASH_PASSWORD = "dash_password"
         private const val KEY_DASH_SSID_PREFIX = "dash_ssid_prefix"
         private const val KEY_DASH_EXACT_SSID = "dash_exact_ssid"
         private const val KEY_DASH_MAC = "dash_mac"
+        private const val KEY_NOTIF_ENABLED = "notif_enabled"
+        private const val KEY_NOTIF_APPS = "notif_apps"
         const val DEFAULT_SSID_PREFIX = "CQKY_"
+
+        // Default forward list — common messaging apps. The user can refine later (app-picker UI
+        // is a fast-follow); these cover the "see my texts on the dash" case out of the box.
+        val DEFAULT_NOTIFY_APPS: Set<String> = setOf(
+            "com.google.android.apps.messaging", // Google Messages (SMS/RCS)
+            "org.thoughtcrime.securesms",         // Signal
+            "com.whatsapp",                       // WhatsApp
+            "org.telegram.messenger",             // Telegram
+            "com.facebook.orca",                  // Messenger
+        )
     }
 }

@@ -142,7 +142,15 @@ file; this is the index + status.
 | **50** | activateVehicle (BID) | `bidForge` | `bid` — irrelevant on SV=3.0.4 | 🟡 |
 | **54** | checkVehicleCurStatus | `checkVehicleCurStatus` | `{}` — dash gates 17818 dial on this | ✅ handshake |
 
-**Notifications/calls (msg_id=2/3): PROBABLE dead-end (2026-07-30).** Built + tested on hardware — dash gives ZERO response to well-formed msg_id=2 (SMS) and msg_id=3 (incall); our JSON is byte-identical to the OEM, no capability gate, no enable message exists (2-agent + code confirm). Same "code in shared firmware, model doesnt expose it" pattern as music. Definitive check = run the real ThinkerRide app on this dash. Not pursued.
+**Phone notifications: msg_id=6 text RENDERS (CONFIRMED on-dash 2026-10-01).** The 2026-07-30
+"dead-end" verdict was WRONG — it fired the wrong frame (the heavy icon-bearing `msg_id=2`,
+mislabeled "SMS") on a non-quiet link, the same false-negative that hid native nav until the
+quiet-link recipe was found that same day. Re-probed single-shot on a quiet link: **`msg_id=6`
+`{title, content}` (OEM `sendMMS`) renders a yellow banner — sender in the header, scrolling
+body, open/dismiss with the SELECT key — and re-fires cleanly.** This is the universal
+notification channel: compose `title`=sender/app, `content`=body, forward any app through it.
+Full render-probe sweep: `docs/re/dash_render_map.md`. msg_id=2 (app-notify), 3 (incall), and
+27/MUSIC do NOT render; they were the frames the old verdict tested.
 
 **Defined by OEM but not yet built by us** (🟡 RE-DERIVED, all A→D): `2` sendNotification,
 `3` incall, `4` sendCross (intersection bitmap), `6` MMS, `7` sendLocation (street; gated by
