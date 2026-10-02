@@ -347,23 +347,6 @@ class DashService : Service() {
                 val altM = intent.getIntExtra(EXTRA_ALT_M, 3000)
                 scope.launch { runTestAltitude(altM) }
             }
-            ACTION_TEST_NOTIFY -> {
-                // Debug: fire ONE notification frame on the quiet link (same recipe as nav) to
-                // test whether the dash renders phone notifications natively. "mms" = the small
-                // msg_id=6 text frame; "app" = the msg_id=2 app-notify frame (no icon by default).
-                val kind = intent.getStringExtra(EXTRA_NOTIFY_KIND) ?: "mms"
-                val title = intent.getStringExtra(EXTRA_NOTIFY_TITLE) ?: "Kate"
-                val body = intent.getStringExtra(EXTRA_NOTIFY_BODY) ?: "call me when you land"
-                val pkg = intent.getStringExtra(EXTRA_NOTIFY_PKG) ?: "com.google.android.apps.messaging"
-                val app = intent.getStringExtra(EXTRA_NOTIFY_APP) ?: "Messages"
-                scope.launch { runTestNotify(kind, title, body, pkg, app) }
-            }
-            ACTION_TEST_RAW -> {
-                // Debug: fire an arbitrary JSON frame once on the quiet link — probe any msg_id
-                // (incall msg_id=3, music msg_id=27 func=MUSIC, battery 23, street 7, …).
-                val raw = intent.getStringExtra(EXTRA_RAW)
-                if (raw != null) scope.launch { runTestRaw(raw) }
-            }
             ACTION_ARM_PROJECTION -> scope.launch {
                 if (wifiParked) unparkWifi() // projection needs Wi-Fi/15456 — bring it back first
                 armProjection() // on-demand video: open 15456, wait for UP
@@ -798,49 +781,6 @@ class DashService : Service() {
         runCatching { ble.sendJson(DashMessages.setAltitude(altM, altM, altM)) }
             .onFailure { Log.w(TAG, "testAlt send failed", it) }
         Log.i(TAG, "testAlt: sent — watch the dash altitude field")
-    }
-
-    /**
-     * DEBUG ONLY (via BuildConfig.DEBUG-gated NavTestReceiver). Fire ONE phone-notification frame
-     * on the quiet link to test whether the dash renders it natively — the retest of the old
-     * "notifications dead-end," now with the CORRECT frame (msg_id=6 text vs msg_id=2 app-notify)
-     * and the proven quiet-link recipe. Single-shot: notification frames are content commands in
-     * the same family as msg_id=1 nav, which only reassemble/render when the link is calm.
-     *
-     * [kind] "mms" → msg_id=6 `{title, content}` (small, the true text frame); "app" → msg_id=2
-     * `{app_name, title, content, package_name}` (no icon — matches how the OEM sends to a
-     * "small system" like ours). Watch the dash for ~60 s after firing.
-     */
-    private suspend fun runTestNotify(kind: String, title: String, body: String, pkg: String, app: String) {
-        if (ble.connectionState.value != DashBleClient.State.CONNECTED) {
-            Log.w(TAG, "testNotify: BLE not connected — skipping")
-            return
-        }
-        val json = if (kind.equals("app", ignoreCase = true)) {
-            DashMessages.appNotify(pkg, app, title, body)          // msg_id=2, no icon
-        } else {
-            DashMessages.notifyText(title, body)                   // msg_id=6 (default)
-        }
-        Log.i(TAG, "testNotify: single-shot kind=$kind (quiet-link recipe) → $json")
-        runCatching { ble.sendJson(json) }
-            .onFailure { Log.w(TAG, "testNotify send failed", it) }
-        Log.i(TAG, "testNotify: sent once — channel now quiet, watch the dash for ~60 s")
-    }
-
-    /**
-     * DEBUG ONLY. Fire an arbitrary JSON frame once on the quiet link — a generic probe for any
-     * message type without a dedicated builder (incall msg_id=3, music msg_id=27 func=MUSIC,
-     * battery 23, street 7, …). The string is sent verbatim, so it must be valid dash JSON.
-     */
-    private suspend fun runTestRaw(json: String) {
-        if (ble.connectionState.value != DashBleClient.State.CONNECTED) {
-            Log.w(TAG, "testRaw: BLE not connected — skipping")
-            return
-        }
-        Log.i(TAG, "testRaw: single-shot (quiet-link recipe) → $json")
-        runCatching { ble.sendJson(json) }
-            .onFailure { Log.w(TAG, "testRaw send failed", it) }
-        Log.i(TAG, "testRaw: sent once — watch the dash for ~60 s")
     }
 
     /**
@@ -1636,17 +1576,6 @@ class DashService : Service() {
         const val EXTRA_SIM_STEP_M = "kovedash.sim.stepM"
         const val ACTION_TEST_ALT = "kovedash.TEST_ALT"
         const val EXTRA_ALT_M = "kovedash.alt.m"
-        // Notification probe (debug): fire a text (msg_id=6) or app-notify (msg_id=2) frame
-        // once on the quiet link, to test whether the dash renders phone notifications natively.
-        const val ACTION_TEST_NOTIFY = "kovedash.TEST_NOTIFY"
-        const val EXTRA_NOTIFY_KIND = "kovedash.notify.kind"   // "mms" (msg_id=6) | "app" (msg_id=2)
-        const val EXTRA_NOTIFY_TITLE = "kovedash.notify.title" // sender / notif title
-        const val EXTRA_NOTIFY_BODY = "kovedash.notify.body"   // message body / notif content
-        const val EXTRA_NOTIFY_PKG = "kovedash.notify.pkg"     // app-notify only: package_name
-        const val EXTRA_NOTIFY_APP = "kovedash.notify.app"     // app-notify only: app_name
-        // Generic raw-frame probe (debug): fire arbitrary JSON once on the quiet link.
-        const val ACTION_TEST_RAW = "kovedash.TEST_RAW"
-        const val EXTRA_RAW = "kovedash.raw.json"
         const val EXTRA_TBT_ICON = "kovedash.tbt.icon"
         const val EXTRA_TBT_ROAD = "kovedash.tbt.road"
         const val EXTRA_TBT_CUR_M = "kovedash.tbt.curM"
@@ -1786,29 +1715,6 @@ class DashService : Service() {
                 Intent(ctx, DashService::class.java)
                     .setAction(ACTION_TEST_ALT)
                     .putExtra(EXTRA_ALT_M, altM)
-            )
-        }
-
-        /** Debug: fire one notification frame (text/msg_id=6 or app/msg_id=2) on the quiet link.
-         *  Triggered by [NavTestReceiver] from adb — the notification-render probe. */
-        fun testNotify(ctx: Context, kind: String, title: String, body: String, pkg: String, app: String) {
-            ctx.startService(
-                Intent(ctx, DashService::class.java)
-                    .setAction(ACTION_TEST_NOTIFY)
-                    .putExtra(EXTRA_NOTIFY_KIND, kind)
-                    .putExtra(EXTRA_NOTIFY_TITLE, title)
-                    .putExtra(EXTRA_NOTIFY_BODY, body)
-                    .putExtra(EXTRA_NOTIFY_PKG, pkg)
-                    .putExtra(EXTRA_NOTIFY_APP, app)
-            )
-        }
-
-        /** Debug: fire arbitrary JSON once on the quiet link. Triggered by [NavTestReceiver]. */
-        fun testRaw(ctx: Context, json: String) {
-            ctx.startService(
-                Intent(ctx, DashService::class.java)
-                    .setAction(ACTION_TEST_RAW)
-                    .putExtra(EXTRA_RAW, json)
             )
         }
 
